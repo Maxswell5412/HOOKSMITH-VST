@@ -77,6 +77,10 @@ int main (int argc, char** argv)
         p.setPlayConfigDetails (0, 2, sr, 512);
         p.prepareToPlay (sr, 512);
         p.generateAll();
+        for (const char* id : { "lane1_colOn", "lane4_colOn" }) setParam (p, id, 1.0f);
+        p.storeSlot (hs::MelodyLane, 0); p.rerollLane (hs::MelodyLane); p.storeSlot (hs::MelodyLane, 2); p.recallSlot (hs::MelodyLane, 0);
+        p.storeSlot (hs::BassLane, 1);
+        setParam (p, "lane1_machine", 4.0f); setParam (p, "lane1_flavor", 0.8f); setParam (p, "lane1_exag", 0.5f); setParam (p, "lane1_funk", 0.7f);
         std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
         std::function<void (juce::Component&)> walk = [&] (juce::Component& c)
         {
@@ -94,6 +98,7 @@ int main (int argc, char** argv)
         if (const char* shot = std::getenv ("HS_SHOT"))
         {
             ed->setSize (1180, 1000);
+            if (auto* hp = dynamic_cast<HooksmithPanel*> (ed->getChildComponent (0))) hp->tick();
             auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, 1.0f);
             juce::FileOutputStream os { juce::File (shot) };
             os.setPosition (0); os.truncate();

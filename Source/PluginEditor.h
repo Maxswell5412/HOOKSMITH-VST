@@ -97,6 +97,9 @@ private:
     juce::ComboBox sound, octave;
     ui::Knob vol, len;
     juce::Rectangle<int> lcdArea;
+    juce::OwnedArray<ui::LedButton> slotButtons;   // melody + bass: 4 memory slots
+    void slotClicked (int slot, bool menu);
+    void refreshSlots();
     juce::String lcdText() const;
     juce::String shownLcd;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> onA;
@@ -149,9 +152,11 @@ private:
     int colorLane = 0;
     juce::OwnedArray<ui::LedButton> colorTabs;
     ui::LedButton colorOnButton { "Color On", ui::Col::amber };
-    ui::Knob drive, wobble, noise, crush, tone, colMix;
+    ui::Knob drive, wobble, noise, crush, tone, colMix, machine, flavor, exag, funk;
+    int shownMachine = -1;
+    juce::Rectangle<int> machineGroup;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> colorOnA;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> driveA, wobbleA, noiseA, crushA, toneA, colMixA;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> driveA, wobbleA, noiseA, crushA, toneA, colMixA, machineA, flavorA, exagA, funkA;
 
     // TAPE STOP
     hsui::TapeButton tapeButton;

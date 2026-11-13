@@ -141,6 +141,11 @@ struct Settings
     std::array<int, kNumLanes> variant { 0, 0, 0, 0 };
     // LENGTH dial per part: note length x 0.1 .. 2 (1 = as written)
     std::array<float, kNumLanes> noteLength { 1.0f, 1.0f, 1.0f, 1.0f };
+    // COLOR > MACHINE per part: 0 off, 1 MPC60, 2 MPC2000, 3 MPC3000, 4 SP-1200, with its FLAVOR 0..1
+    std::array<int, kNumLanes> machine { 0, 0, 0, 0 };
+    std::array<float, kNumLanes> machineFlavor { 0.5f, 0.5f, 0.5f, 0.5f };
+    std::array<float, kNumLanes> machineExaggerate { 0, 0, 0, 0 };   // push the machine past its real specs
+    std::array<float, kNumLanes> machineFunk { 0, 0, 0, 0 };         // random push/pull and accents
     std::shared_ptr<const ImportedProgression> imported;   // set = use these chords instead of the PROGRESSOR
 };
 

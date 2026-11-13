@@ -321,6 +321,36 @@ int main()
         std::printf ("imported %d files\n", ok);
     }
 
+    // ---- memory slots (melody + bass) ---------------------------------------------
+    {
+        HooksmithProcessor p;
+        p.setPlayConfigDetails (0, 2, 48000.0, 512);
+        p.prepareToPlay (48000.0, 512);
+        p.generateAll();
+        auto melody = [&p] { auto pat = p.getPattern(); return pat.lanes[hs::MelodyLane]; };
+        const auto m1 = melody();
+        p.storeSlot (hs::MelodyLane, 0);
+        CHECK (p.slotUsed (hs::MelodyLane, 0) && p.activeSlot (hs::MelodyLane) == 0, "slot 1 saved and active");
+        p.rerollLane (hs::MelodyLane); p.rerollLane (hs::MelodyLane); p.rerollLane (hs::MelodyLane);
+        const auto m2 = melody();
+        p.storeSlot (hs::MelodyLane, 1);
+        CHECK (m2.size() != m1.size() || ! std::equal (m1.begin(), m1.end(), m2.begin(), [] (auto& a, auto& b) { return a.start == b.start && a.pitch == b.pitch; }), "new melody differs");
+        p.recallSlot (hs::MelodyLane, 0);
+        const auto back = melody();
+        CHECK (back.size() == m1.size() && std::equal (m1.begin(), m1.end(), back.begin(), [] (auto& a, auto& b) { return a.start == b.start && a.pitch == b.pitch; }), "slot 1 brings the melody back exactly");
+        CHECK (p.activeSlot (hs::MelodyLane) == 0, "slot 1 shows as playing");
+        CHECK (! p.slotUsed (hs::ChordsLane, 0) && ! HooksmithProcessor::laneHasSlots (hs::DrumsLane), "slots only on melody and bass");
+        juce::MemoryBlock mb; p.getStateInformation (mb);
+        HooksmithProcessor q; q.setPlayConfigDetails (0, 2, 48000.0, 512); q.prepareToPlay (48000.0, 512);
+        q.setStateInformation (mb.getData(), (int) mb.getSize());
+        CHECK (q.slotUsed (hs::MelodyLane, 0) && q.slotUsed (hs::MelodyLane, 1) && ! q.slotUsed (hs::MelodyLane, 2), "slots saved with the project");
+        q.recallSlot (hs::MelodyLane, 1);
+        const auto m2b = q.getPattern().lanes[hs::MelodyLane];
+        CHECK (m2b.size() == m2.size(), "slot 2 restores after reload");
+        p.clearSlot (hs::MelodyLane, 1);
+        CHECK (! p.slotUsed (hs::MelodyLane, 1), "slot cleared");
+        std::printf ("memory slots ok\n");
+    }
     std::printf ("%d failures\n", failures);
     return failures == 0 ? 0 : 1;
 }

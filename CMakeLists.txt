@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(Hooksmith VERSION 0.2.2)
+project(Hooksmith VERSION 0.3.0)
 
 # ---------------------------------------------------------------------------
 # JUCE: use a local copy if you point JUCE_DIR at one, otherwise download it.

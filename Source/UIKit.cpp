@@ -283,6 +283,19 @@ void Look::drawButtonBackground (juce::Graphics& g, juce::Button& b, const juce:
         const bool on = b.getToggleState() || (bool) b.getProperties().getWithDefault ("ledForce", false);
         led (g, { body.getX() + 12.0f, body.getCentreY() }, 3.6f, col, on && b.isEnabled());
     }
+    if ((bool) b.getProperties().getWithDefault ("slot", false))
+    {
+        // memory slot: a small LED when something is saved, a coloured glow when it's the one playing
+        const auto col = juce::Colour ((juce::uint32) (juce::int64) b.getProperties().getWithDefault ("ledColour", (juce::int64) Col::amber.getARGB()));
+        if ((bool) b.getProperties().getWithDefault ("slotActive", false))
+        {
+            g.setColour (col.withAlpha (0.32f));
+            g.fillRoundedRectangle (body.reduced (1.5f), radius - 1.0f);
+            g.setColour (col.withAlpha (0.9f));
+            g.drawRoundedRectangle (body.reduced (1.0f), radius - 1.0f, 1.2f);
+        }
+        led (g, { body.getRight() - 5.5f, body.getY() + 5.5f }, 2.2f, col, b.getToggleState());
+    }
 }
 
 void Look::drawButtonText (juce::Graphics& g, juce::TextButton& b, bool, bool down)

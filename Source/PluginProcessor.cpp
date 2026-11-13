@@ -157,6 +157,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout HooksmithProcessor::createLa
         layout.add (std::make_unique<AudioParameterFloat> (ParameterID { laneParam (l, "crush"), 1 },  n + "Crush",  NormalisableRange<float> (0.0f, 1.0f), 0.0f));
         layout.add (std::make_unique<AudioParameterFloat> (ParameterID { laneParam (l, "tone"), 1 },   n + "Tone",   NormalisableRange<float> (0.0f, 1.0f), 0.25f));
         layout.add (std::make_unique<AudioParameterFloat> (ParameterID { laneParam (l, "colMix"), 1 }, n + "Color Mix", NormalisableRange<float> (0.0f, 1.0f), 1.0f));
+        layout.add (std::make_unique<AudioParameterChoice> (ParameterID { laneParam (l, "machine"), 1 }, n + "Machine", machineNames(), 0));
+        layout.add (std::make_unique<AudioParameterFloat> (ParameterID { laneParam (l, "flavor"), 1 }, n + "Machine Flavor",
+                                                           NormalisableRange<float> (0.0f, 1.0f), 0.6f,
+                                                           AudioParameterFloatAttributes().withStringFromValueFunction (
+                                                               [] (float v, int) { return String (roundToInt (v * 100.0f)) + "%"; })));
+        for (auto [id, nm] : { std::pair<const char*, const char*> { "exag", "Machine Exaggerate" }, { "funk", "Machine Funk" } })
+            layout.add (std::make_unique<AudioParameterFloat> (ParameterID { laneParam (l, id), 1 }, n + nm, NormalisableRange<float> (0.0f, 1.0f), 0.0f,
+                                                               AudioParameterFloatAttributes().withStringFromValueFunction (
+                                                                   [] (float v, int) { return String (roundToInt (v * 100.0f)) + "%"; })));
 
         if (l < kArpLanes)   // every melodic part has its own arpeggiator
         {
@@ -207,6 +216,10 @@ HooksmithProcessor::HooksmithProcessor()
         pCrush[(size_t) l]  = raw (laneParam (l, "crush"));
         pTone[(size_t) l]   = raw (laneParam (l, "tone"));
         pColMix[(size_t) l] = raw (laneParam (l, "colMix"));
+        pMachine[(size_t) l] = raw (laneParam (l, "machine"));
+        pFlavor[(size_t) l]  = raw (laneParam (l, "flavor"));
+        pExag[(size_t) l]    = raw (laneParam (l, "exag"));
+        pFunk[(size_t) l]    = raw (laneParam (l, "funk"));
     }
     pTapeStop = raw ("tapeStop"); pTapeLoop = raw ("tapeLoop"); pTapeTime = raw ("tapeTime"); pTapeStart = raw ("tapeStart");
 
@@ -265,6 +278,11 @@ hs::Settings HooksmithProcessor::currentSettings() const
     {
         s.variant[(size_t) l] = takes[(size_t) l] % 3;
         s.noteLength[(size_t) l] = pLaneLen[(size_t) l]->load();
+        const bool colourOn = pColOn[(size_t) l]->load() > 0.5f;
+        s.machine[(size_t) l] = colourOn ? (int) pMachine[(size_t) l]->load() : 0;
+        s.machineFlavor[(size_t) l] = std::round (pFlavor[(size_t) l]->load() * 50.0f) / 50.0f;   // 2% steps: no rebuild storm while turning
+        s.machineExaggerate[(size_t) l] = std::round (pExag[(size_t) l]->load() * 50.0f) / 50.0f;
+        s.machineFunk[(size_t) l] = std::round (pFunk[(size_t) l]->load() * 50.0f) / 50.0f;
     }
     return s;
 }
@@ -280,7 +298,9 @@ bool HooksmithProcessor::settingsChanged (const Settings& s) const
         || std::abs (s.dynamics - o.dynamics) > 1.0e-4f || std::abs (s.strum - o.strum) > 1.0e-4f
         || s.harmonySeed != o.harmonySeed || s.melodySeed != o.melodySeed
         || s.bassSeed != o.bassSeed || s.drumSeed != o.drumSeed || s.imported != o.imported
-        || s.variant != o.variant || s.noteLength != o.noteLength;
+        || s.variant != o.variant || s.noteLength != o.noteLength
+        || s.machine != o.machine || s.machineFlavor != o.machineFlavor
+        || s.machineExaggerate != o.machineExaggerate || s.machineFunk != o.machineFunk;
 }
 
 void HooksmithProcessor::timerCallback()
@@ -440,6 +460,44 @@ void HooksmithProcessor::nextTake (const std::array<bool, kNumLanes>& lanes)
     }
     seedsDirty = true;
     rebuild();
+}
+
+// ---------------------------------------------------------------- memory slots
+bool HooksmithProcessor::slotUsed (int lane, int slot) const
+{
+    return laneHasSlots (lane) && juce::isPositiveAndBelow (slot, kSlots) && memories[(size_t) lane][(size_t) slot].used;
+}
+
+int HooksmithProcessor::activeSlot (int lane) const
+{
+    if (! laneHasSlots (lane)) return -1;
+    for (int i = 0; i < kSlots; ++i)
+    {
+        const auto& sl = memories[(size_t) lane][(size_t) i];
+        if (sl.used && sl.seed == seeds[(size_t) lane] && sl.take == takes[(size_t) lane] % 3) return i;
+    }
+    return -1;
+}
+
+void HooksmithProcessor::storeSlot (int lane, int slot)
+{
+    if (! laneHasSlots (lane) || ! juce::isPositiveAndBelow (slot, kSlots)) return;
+    memories[(size_t) lane][(size_t) slot] = { true, seeds[(size_t) lane], takes[(size_t) lane] % 3 };
+}
+
+void HooksmithProcessor::recallSlot (int lane, int slot)
+{
+    if (! slotUsed (lane, slot)) return;
+    const auto& sl = memories[(size_t) lane][(size_t) slot];
+    seeds[(size_t) lane] = sl.seed;
+    takes[(size_t) lane] = sl.take;
+    seedsDirty = true;
+    rebuild();
+}
+
+void HooksmithProcessor::clearSlot (int lane, int slot)
+{
+    if (laneHasSlots (lane) && juce::isPositiveAndBelow (slot, kSlots)) memories[(size_t) lane][(size_t) slot] = {};
 }
 
 void HooksmithProcessor::generateAll()
@@ -1071,6 +1129,10 @@ void HooksmithProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
                 cs.crush  = pCrush[(size_t) l]->load();
                 cs.tone   = pTone[(size_t) l]->load();
                 cs.mix    = pColMix[(size_t) l]->load();
+                cs.machine = (int) pMachine[(size_t) l]->load();
+                cs.flavor  = pFlavor[(size_t) l]->load();
+                cs.exaggerate = pExag[(size_t) l]->load();
+                cs.funk       = pFunk[(size_t) l]->load();
                 color[(size_t) l].process (bl, br, len, cs);
 
                 juce::FloatVectorOperations::addWithMultiply (outL + start, bl, vol, len);
@@ -1283,6 +1345,9 @@ void HooksmithProcessor::getStateInformation (juce::MemoryBlock& destData)
         sx->setAttribute ("s" + juce::String (l), juce::String ((juce::int64) seeds[(size_t) l]));
         sx->setAttribute ("lock" + juce::String (l), locked[(size_t) l]);
         sx->setAttribute ("take" + juce::String (l), takes[(size_t) l]);
+        for (int k = 0; k < kSlots; ++k)
+            if (const auto& sl = memories[(size_t) l][(size_t) k]; sl.used)
+                sx->setAttribute ("slot" + juce::String (l) + "_" + juce::String (k), juce::String ((juce::int64) sl.seed) + ":" + juce::String (sl.take));
     }
 
     if (! imports.empty())
@@ -1338,6 +1403,13 @@ void HooksmithProcessor::setStateInformation (const void* data, int sizeInBytes)
             seeds[(size_t) l] = (juce::uint32) sx->getStringAttribute ("s" + juce::String (l), juce::String (l + 1)).getLargeIntValue();
             locked[(size_t) l] = sx->getBoolAttribute ("lock" + juce::String (l), false);
             takes[(size_t) l] = juce::jlimit (0, 2, sx->getIntAttribute ("take" + juce::String (l), 0));
+            for (int k = 0; k < kSlots; ++k)
+            {
+                const auto v = sx->getStringAttribute ("slot" + juce::String (l) + "_" + juce::String (k));
+                memories[(size_t) l][(size_t) k] = v.isEmpty() ? Memory {}
+                    : Memory { true, (juce::uint32) v.upToFirstOccurrenceOf (":", false, false).getLargeIntValue(),
+                             juce::jlimit (0, 2, v.fromFirstOccurrenceOf (":", false, false).getIntValue()) };
+            }
         }
 
     imports.clear();

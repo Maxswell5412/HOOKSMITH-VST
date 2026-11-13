@@ -287,6 +287,17 @@ LaneStrip::LaneStrip (HooksmithProcessor& p, int l)
     octave.setTooltip ("Move the part up or down an octave");
     vol.setTooltip ("Volume of this part");
     len.setTooltip ("Note length, like a gate: left = short and choppy, middle = as written, right = long and legato");
+    if (HooksmithProcessor::laneHasSlots (lane))
+        for (int k = 0; k < HooksmithProcessor::kSlots; ++k)
+        {
+            auto* b = slotButtons.add (new ui::LedButton (juce::String (k + 1), laneColour (lane), false));
+            b->getProperties().set ("slot", true);
+            b->setTooltip ("Memory " + juce::String (k + 1) + ": click an empty slot to keep this "
+                           + juce::String (hs::laneNames()[(size_t) lane]).toLowerCase()
+                           + ", click a saved one to bring it back. Right-click to replace or clear.");
+            b->onClick = [this, k] { slotClicked (k, juce::ModifierKeys::currentModifiers.isPopupMenu()); };
+            addAndMakeVisible (b);
+        }
 
     loadButton.onClick  = [this] { chooseInstrument(); };
     showButton.onClick  = [this] { showWindow (window == nullptr); };
@@ -342,6 +353,12 @@ void LaneStrip::resized()
     newButton.setBounds (top);
     r.removeFromTop (6);
     lcdArea = r.removeFromTop (26);
+    if (! slotButtons.isEmpty())
+    {
+        auto sr = lcdArea.removeFromRight (4 * 23 + 3 * 3);
+        lcdArea.removeFromRight (5);
+        for (auto* b : slotButtons) { b->setBounds (sr.removeFromLeft (23)); sr.removeFromLeft (3); }
+    }
     r.removeFromTop (6);
     auto row = r.removeFromTop (28);
     loadButton.setBounds (row.removeFromLeft (row.getWidth() - 110));
@@ -422,8 +439,60 @@ void LaneStrip::mouseDown (const juce::MouseEvent& e)
                      });
 }
 
+void LaneStrip::slotClicked (int slot, bool menu)
+{
+    const auto part = juce::String (hs::laneNames()[(size_t) lane]).toUpperCase();
+    auto say = [this] (const juce::String& t) { if (onStatus) onStatus (t); };
+    if (menu && proc.slotUsed (lane, slot))
+    {
+        juce::PopupMenu m;
+        m.addItem (1, "Replace with what's playing");
+        m.addItem (2, "Clear memory " + juce::String (slot + 1));
+        juce::Component::SafePointer<LaneStrip> safe (this);
+        m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (slotButtons[slot]),
+                         [safe, slot, part] (int r)
+                         {
+                             if (safe == nullptr || r <= 0) return;
+                             if (r == 1) { safe->proc.storeSlot (safe->lane, slot); if (safe->onStatus) safe->onStatus (part + ": SAVED TO MEMORY " + juce::String (slot + 1)); }
+                             if (r == 2) { safe->proc.clearSlot (safe->lane, slot); if (safe->onStatus) safe->onStatus (part + ": MEMORY " + juce::String (slot + 1) + " CLEARED"); }
+                             safe->refreshSlots();
+                         });
+        refreshSlots();
+        return;
+    }
+    if (proc.slotUsed (lane, slot))
+    {
+        proc.recallSlot (lane, slot);
+        say (part + ": MEMORY " + juce::String (slot + 1));
+    }
+    else
+    {
+        proc.storeSlot (lane, slot);
+        say (part + ": SAVED TO MEMORY " + juce::String (slot + 1));
+    }
+    refreshSlots();
+}
+
+void LaneStrip::refreshSlots()
+{
+    const int active = proc.activeSlot (lane);
+    for (int k = 0; k < slotButtons.size(); ++k)
+    {
+        auto* b = slotButtons[k];
+        const bool used = proc.slotUsed (lane, k);
+        const bool isActive = k == active;
+        if (b->getToggleState() != used || (bool) b->getProperties()["slotActive"] != isActive)
+        {
+            b->setToggleState (used, juce::dontSendNotification);
+            b->getProperties().set ("slotActive", isActive);
+            b->repaint();
+        }
+    }
+}
+
 void LaneStrip::setArpBlink (bool lit)
 {
+    refreshSlots();
     if (const auto t = lcdText(); t != shownLcd) { shownLcd = t; repaint(); }
     const auto c = lit ? juce::Colour (0xffffe0b0) : laneColour (lane);
     if ((juce::int64) c.getARGB() != (juce::int64) arpButton.getProperties()["ledColour"])
@@ -705,8 +774,16 @@ HooksmithPanel::HooksmithPanel (HooksmithProcessor& p)
     crush.setTooltip ("CRUSH: lower bit depth and sample rate, like an old sampler");
     tone.setTooltip ("TONE: rolls off the highs, like worn tape");
     colMix.setTooltip ("MIX: blend between the clean and the coloured sound");
+    machine.setTooltip ("MACHINE: the sound and swing of a classic sampler - Off, MPC60, MPC2000, MPC3000 or SP-1200");
+    flavor.setTooltip ("FLAVOR: how much of the machine you hear and feel (its filters, EQ, saturation and swing)");
+    exag.setTooltip ("EXAGGERATE: push the machine past its real specs - lower rate, fewer bits, more swing, narrower filters");
+    funk.setTooltip ("FUNK: random push and pull, accents and ghost notes, and a filter that wanders");
+    machine.setDoubleClickReturnValue (true, 0.0);
+    flavor.setDoubleClickReturnValue (true, 0.6);
+    exag.setDoubleClickReturnValue (true, 0.0);
+    funk.setDoubleClickReturnValue (true, 0.0);
     addAndMakeVisible (colorOnButton);
-    for (auto* k : { &drive, &wobble, &noise, &crush, &tone, &colMix }) addAndMakeVisible (*k);
+    for (auto* k : { &drive, &wobble, &noise, &crush, &tone, &colMix, &machine, &flavor, &exag, &funk }) addAndMakeVisible (*k);
     selectColorLane (0);
 
     // TAPE STOP
@@ -760,6 +837,7 @@ void HooksmithPanel::selectColorLane (int lane)
 {
     colorLane = juce::jlimit (0, (int) hs::kNumLanes - 1, lane);
     colorOnA.reset(); driveA.reset(); wobbleA.reset(); noiseA.reset(); crushA.reset(); toneA.reset(); colMixA.reset();
+    machineA.reset(); flavorA.reset(); exagA.reset(); funkA.reset();
     auto id = [this] (const char* what) { return HooksmithProcessor::laneParam (colorLane, what); };
     colorOnA = std::make_unique<BA> (proc.apvts, id ("colOn"), colorOnButton);
     driveA   = std::make_unique<SA> (proc.apvts, id ("drive"), drive);
@@ -768,6 +846,11 @@ void HooksmithPanel::selectColorLane (int lane)
     crushA   = std::make_unique<SA> (proc.apvts, id ("crush"), crush);
     toneA    = std::make_unique<SA> (proc.apvts, id ("tone"), tone);
     colMixA  = std::make_unique<SA> (proc.apvts, id ("colMix"), colMix);
+    machineA = std::make_unique<SA> (proc.apvts, id ("machine"), machine);
+    flavorA  = std::make_unique<SA> (proc.apvts, id ("flavor"), flavor);
+    exagA    = std::make_unique<SA> (proc.apvts, id ("exag"), exag);
+    funkA    = std::make_unique<SA> (proc.apvts, id ("funk"), funk);
+    shownMachine = -1;
     for (int i = 0; i < colorTabs.size(); ++i) colorTabs[i]->setToggleState (i == colorLane, juce::dontSendNotification);
     colorOnButton.getProperties().set ("ledColour", (juce::int64) laneColour (colorLane).getARGB());
     colorOnButton.repaint();
@@ -852,10 +935,16 @@ void HooksmithPanel::resized()
         for (auto* t : colorTabs) { t->setBounds (tabs.removeFromLeft (88)); tabs.removeFromLeft (4); }
         auto c = colorArea.reduced (14, 0).withTrimmedTop (36).withHeight (48);
         colorOnButton.setBounds (c.removeFromLeft (100).withSizeKeepingCentre (100, 34).translated (0, -4));
-        c.removeFromLeft (10);
+        c.removeFromLeft (6);
+        auto mc = c.removeFromRight (c.getWidth() * 46 / 100);   // MACHINE group on the right
         const int cw = c.getWidth() / 6;
         for (auto* k : { &drive, &wobble, &noise, &crush, &tone, &colMix })
-            k->setBounds (c.removeFromLeft (cw).withSizeKeepingCentre (44, 44).translated (0, -4));
+            k->setBounds (c.removeFromLeft (cw).withSizeKeepingCentre (42, 42).translated (0, -4));
+        machineGroup = mc.toNearestInt();
+        mc.removeFromLeft (8);
+        const int mw = mc.getWidth() / 4;
+        for (auto* k : { &machine, &flavor, &exag, &funk })
+            k->setBounds (mc.removeFromLeft (mw).withSizeKeepingCentre (42, 42).translated (0, -4));
     }
     // TAPE STOP
     {
@@ -1066,9 +1155,23 @@ void HooksmithPanel::renderBackground()
 
     title (exportArea, "EXPORT", "drag into your DAW");
 
-    title (colorArea, "COLOR", "retro tape colour, per part");
+    title (colorArea, "COLOR", "retro tape colour + classic samplers, per part");
     knobLabel (drive, "DRIVE"); knobLabel (wobble, "WOBBLE"); knobLabel (noise, "NOISE");
     knobLabel (crush, "CRUSH"); knobLabel (tone, "TONE"); knobLabel (colMix, "MIX");
+    {
+        // MACHINE group: a divider, and the machine's name in amber under its knob
+        g.setColour (juce::Colours::black.withAlpha (0.45f));
+        g.fillRect ((float) machineGroup.getX(), (float) machineGroup.getY() - 6.0f, 1.5f, (float) machineGroup.getHeight() + 10.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.05f));
+        g.fillRect ((float) machineGroup.getX() + 1.5f, (float) machineGroup.getY() - 6.0f, 1.0f, (float) machineGroup.getHeight() + 10.0f);
+        const int m = (int) proc.apvts.getRawParameterValue (HooksmithProcessor::laneParam (colorLane, "machine"))->load();
+        const auto name = HooksmithProcessor::machineNames()[m].toUpperCase();
+        engraved (g, name, machine.getBounds().toFloat().withY ((float) machine.getBottom() - 1.0f).withHeight (14.0f).expanded (30.0f, 0.0f),
+                  Fonts::label (11.5f), juce::Justification::centred, m > 0 ? Col::amber : Col::dim.brighter (0.3f));
+        knobLabel (flavor, "FLAVOR"); knobLabel (funk, "FUNK");
+        engraved (g, "EXAGGERATE", exag.getBounds().toFloat().withY ((float) exag.getBottom() - 1.0f).withHeight (14.0f).expanded (30.0f, 0.0f),
+                  Fonts::label (10.0f), juce::Justification::centred, Col::dim.brighter (0.3f));
+    }
     title (tapeArea, "TAPE STOP", nullptr);
     knobLabel (tapeTime, "STOP"); knobLabel (tapeStart, "START");
     engraved (g, "BUILT-IN", sketchVol.getBounds().toFloat().withY ((float) sketchVol.getBottom() - 2.0f).withHeight (14.0f).expanded (20.0f, 0.0f),
@@ -1129,6 +1232,8 @@ void HooksmithPanel::changeListenerCallback (juce::ChangeBroadcaster*)
 
 void HooksmithPanel::timerCallback()
 {
+    if (const int m = (int) proc.apvts.getRawParameterValue (HooksmithProcessor::laneParam (colorLane, "machine"))->load(); m != shownMachine)
+    { shownMachine = m; repaint (colorArea); }
     const int bars = (int) proc.apvts.getRawParameterValue ("bars")->load();
     for (int i = 0; i < barButtons.size(); ++i) barButtons[i]->setToggleState (i == bars, juce::dontSendNotification);
     const int sec = (int) proc.apvts.getRawParameterValue ("section")->load();

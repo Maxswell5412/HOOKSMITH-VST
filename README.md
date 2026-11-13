@@ -49,6 +49,19 @@ Needs CMake 3.22+ and a C++17 compiler (Xcode on Mac, Visual Studio 2022 on Wind
 
 ---
 
+## New in v0.3
+- **MACHINE (in COLOR):** give any part the sound *and* swing of a classic sampler: **MPC60, MPC2000, MPC3000 or SP-1200**. Each one has its own converter (sample rate and bits), filters, EQ voicing and saturation, plus its classic swing.
+  - **FLAVOR** sets how much of the machine you hear and feel.
+  - **EXAGGERATE** pushes it past the real specs: lower rate, fewer bits, harder swing, narrower filters.
+  - **FUNK** loosens it up: lazy snares, pushed kicks, random accents and ghost notes, and a filter that wanders.
+  - The level is matched automatically, so a machine changes the character, not the volume.
+- **Memory slots (Melody and Bass):** four slots next to the display. Click an empty slot to keep what's playing, click a saved one to bring it back, right-click to replace or clear. Saved with your project.
+- **LENGTH dial** on every part (short and choppy to long and smooth).
+- **GENERATE takes:** a new idea, then two close takes of it, then something completely different.
+- **Built-in sounds:** pianos, pads, strings, plucks, organ, leads, 808, sub, Reese and more. Auto picks a sound for the genre, or click a part's display to choose.
+- Bass lines now jump an octave now and then, like real players do.
+- Fixed: turning on an arp could crash Ableton.
+
 ## New in v0.2
 - **GROOVE module**: 10 feels (Tight, Laid Back, Pushed, Dilla, Shuffle, Bounce, Afro/Dembow, Live Drummer, Rubato, or the genre's default) plus Amount, Swing, Push/Lay Back (pocket), Dynamics, Strum and Humanize. This is what takes away the robotic feel.
 - **Per-part GENERATE**: every part (Chords, Melody, Bass, Drums) has its own GENERATE that rewrites only that part, even when it's locked. **GENERATE ALL** at the top skips locked parts. New drums give a new beat in the same style, and the 808 follows the new kick.

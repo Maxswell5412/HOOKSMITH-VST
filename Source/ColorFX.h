@@ -13,6 +13,8 @@
 //   CRUSH  bit depth and sample-rate reduction
 //   TONE   rolls off the top end (worn tape / old sampler)
 //   MIX    dry / coloured blend
+//   MACHINE classic sampler character: MPC60, MPC2000, MPC3000, SP-1200
+//   FLAVOR  how much of that machine (its sound here, its swing in the pattern)
 // TAPE STOP: slows the whole output down to a stop, then spins back up.
 // Allocation-free once prepared.
 // -----------------------------------------------------------------------------
@@ -22,7 +24,89 @@ struct ColorSettings
 {
     bool on = false;
     float drive = 0, wobble = 0, noise = 0, crush = 0, tone = 0, mix = 1;
+    int machine = 0;          // 0 off, 1 MPC60, 2 MPC2000, 3 MPC3000, 4 SP-1200
+    float flavor = 0.5f;
+    float exaggerate = 0.0f;  // past the real specs: lower rate, fewer bits, more drive, narrower filters
+    float funk = 0.0f;        // the filter wanders and the drive breathes
 };
+
+// The sound of each classic machine: converter, filters, EQ voicing and saturation.
+// (The swing lives in the composer, Music.cpp.)
+struct MachineSpec
+{
+    const char* name;
+    double sampleRate;        // 0 = no sample-rate reduction
+    int bits;
+    float lowCut, highCut;    // Hz
+    float lowFreq, lowGain;   // bell 1 (Hz, dB)
+    float midFreq, midGain;   // bell 2
+    float shelfGain;          // high shelf at 8 kHz (dB)
+    int satType;              // 0 tape (smooth), 1 tube (asymmetric), 2 punch (soft clip), 3 diode (hard, gritty)
+    float drive, punch;
+};
+
+inline const MachineSpec& machineSpec (int m)
+{
+    static const MachineSpec specs[] = {
+        { "OFF",     0.0,     24, 20.0f, 20000.0f, 100.0f, 0.0f, 1000.0f, 0.0f,  0.0f, 0, 0.0f,  0.0f },
+        { "MPC60",   40000.0, 12, 40.0f, 13000.0f, 180.0f, 3.0f, 2500.0f, -1.5f, -1.5f, 1, 0.35f, 0.3f },
+        { "MPC2000", 0.0,     16, 30.0f, 17000.0f, 80.0f,  2.5f, 3200.0f, 2.5f,  1.0f, 2, 0.2f,  0.75f },
+        { "MPC3000", 0.0,     16, 25.0f, 15500.0f, 120.0f, 3.5f, 400.0f,  -2.0f, -2.0f, 0, 0.28f, 0.45f },
+        { "SP-1200", 26040.0, 12, 60.0f, 9000.0f,  140.0f, 1.5f, 1200.0f, 3.5f,  -3.0f, 3, 0.45f, 0.25f },
+    };
+    return specs[juce::jlimit (0, 4, m)];
+}
+
+// Small RBJ biquad (transposed direct form II)
+struct Biquad
+{
+    float b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0;
+    std::array<float, 2> z1 {}, z2 {};
+    void reset() { z1 = z2 = { 0, 0 }; }
+    float process (float x, int c)
+    {
+        const float y = b0 * x + z1[(size_t) c];
+        z1[(size_t) c] = b1 * x - a1 * y + z2[(size_t) c];
+        z2[(size_t) c] = b2 * x - a2 * y;
+        return y;
+    }
+    void set (double sr, int type, float f, float q, float dB)   // 0 LP, 1 HP, 2 bell, 3 high shelf
+    {
+        f = juce::jlimit (10.0f, (float) sr * 0.45f, f);
+        const float A = std::pow (10.0f, dB / 40.0f);
+        const float w = juce::MathConstants<float>::twoPi * f / (float) sr, cw = std::cos (w), sw = std::sin (w);
+        const float alpha = sw / (2.0f * q);
+        float B0, B1, B2, A0, A1, A2;
+        switch (type)
+        {
+            case 0:  B0 = (1 - cw) / 2; B1 = 1 - cw; B2 = (1 - cw) / 2; A0 = 1 + alpha; A1 = -2 * cw; A2 = 1 - alpha; break;
+            case 1:  B0 = (1 + cw) / 2; B1 = -(1 + cw); B2 = (1 + cw) / 2; A0 = 1 + alpha; A1 = -2 * cw; A2 = 1 - alpha; break;
+            case 2:  B0 = 1 + alpha * A; B1 = -2 * cw; B2 = 1 - alpha * A; A0 = 1 + alpha / A; A1 = -2 * cw; A2 = 1 - alpha / A; break;
+            default:
+            {
+                const float sq = 2.0f * std::sqrt (A) * alpha;
+                B0 = A * ((A + 1) + (A - 1) * cw + sq); B1 = -2 * A * ((A - 1) + (A + 1) * cw); B2 = A * ((A + 1) + (A - 1) * cw - sq);
+                A0 = (A + 1) - (A - 1) * cw + sq; A1 = 2 * ((A - 1) - (A + 1) * cw); A2 = (A + 1) - (A - 1) * cw - sq;
+            }
+        }
+        b0 = B0 / A0; b1 = B1 / A0; b2 = B2 / A0; a1 = A1 / A0; a2 = A2 / A0;
+    }
+};
+
+inline float machineSaturate (float v, int type, float drive)
+{
+    // every curve has unity gain for quiet signals and flattens the peaks; the auto gain does the rest
+    switch (type)
+    {
+        case 1:  { const float t = std::tanh (0.18f);                                                         // tube: even harmonics
+                   return (std::tanh (v * drive + 0.18f) - t) / (drive * (1.0f - t * t)); }
+        case 2:  { const float x = v * drive; return x / (1.0f + std::abs (x)) / drive; }                    // punch: soft clip
+        case 3:  { const float x = v * drive * 1.3f;                                                          // diode: hard + asymmetric
+                   const float y = x > 0 ? 1.0f - std::exp (-x) : -(1.0f - std::exp (x * 0.6f)) * 0.8f / 0.6f;
+                   return y / (drive * 1.3f); }
+        default: return std::tanh (v * drive) / drive;                                                      // tape: smooth
+    }
+}
 
 class ColorFX
 {
@@ -49,6 +133,10 @@ public:
         wowPhase = flutterPhase = 0;
         drift = driftTarget = 0;
         driftCount = 0;
+        srPhase = 0; mEnv = 0;
+        mHeld = mDcX = mDcY = { 0, 0 };
+        mHp.reset(); mLp.reset(); mBell1.reset(); mBell2.reset(); mShelf.reset();
+        funkWalk = 0; autoGain = 1.0f; inPow = outPow = 0;
     }
 
     void process (float* L, float* R, int n, const ColorSettings& s)
@@ -74,10 +162,72 @@ public:
         const double flutInc = juce::MathConstants<double>::twoPi * 6.3 / sr;
         const float baseDelay = wob * 0.0045f * (float) sr;   // samples
 
+        const auto& ms = machineSpec (s.machine);
+        const float fl = juce::jlimit (0.0f, 1.0f, s.flavor);
+        const bool machineOn = s.machine > 0 && fl > 0.001f;
+        const float ex = juce::jlimit (0.0f, 1.0f, s.exaggerate), fk = juce::jlimit (0.0f, 1.0f, s.funk);
+        const double rate = ms.sampleRate > 0.0 ? ms.sampleRate * (1.0 - 0.55 * ex)
+                                                : (ex > 0.01f ? 44100.0 * (1.0 - 0.45 * ex) : 0.0);
+        const double srStep = rate > 0.0 ? rate / sr : 1.0;
+        const float qLevels = std::pow (2.0f, (float) ms.bits - 1.0f - 5.0f * ex);
+        const float mDrive = 1.0f + ms.drive * 6.0f * fl * (1.0f + 2.0f * ex);
+        const float envAtt = 1.0f - std::exp (-1.0f / (0.004f * (float) sr)), envRel = 1.0f - std::exp (-1.0f / (0.09f * (float) sr));
+        if (machineOn)
+        {
+            // FUNK: a random walk on the high cut, refreshed every block
+            if (fk > 0.001f)
+            {
+                funkWalk += (rand01() - 0.5f) * 0.25f * fk - funkWalk * 0.04f;
+                funkWalk = juce::jlimit (-1.0f, 1.0f, funkWalk);
+            }
+            else funkWalk = 0.0f;
+            const float eqScale = fl * (1.0f + 1.5f * ex);
+            const float lowCut = ms.lowCut * (1.0f + 3.0f * ex);
+            const float highCut = ms.highCut * (1.0f - 0.6f * ex) * (1.0f + 0.4f * fk * funkWalk);
+            mHp.set (sr, 1, lowCut, 0.75f, 0.0f);
+            mLp.set (sr, 0, highCut, 0.8f + 0.5f * ex, 0.0f);
+            mBell1.set (sr, 2, ms.lowFreq, 0.8f, ms.lowGain * eqScale);
+            mBell2.set (sr, 2, ms.midFreq, 1.0f, ms.midGain * eqScale);
+            mShelf.set (sr, 3, 8000.0f, 0.7f, ms.shelfGain * eqScale);
+        }
+
         for (int i = 0; i < n; ++i)
         {
             float x[2] = { L[i], R != nullptr ? R[i] : L[i] };
             const float dry[2] = { x[0], x[1] };
+
+            // ---- MACHINE: sampler converter, saturation, low end and punch
+            if (machineOn)
+            {
+                bool take = true;
+                if (rate > 0.0)
+                {
+                    srPhase += srStep;
+                    take = srPhase >= 1.0;
+                    if (take) srPhase -= 1.0;
+                }
+                const float peak = std::max (std::abs (x[0]), std::abs (x[1]));
+                mEnv += (peak > mEnv ? envAtt : envRel) * (peak - mEnv);
+                const float over = juce::jmax (0.0f, mEnv - 0.18f);
+                const float comp = 1.0f / (1.0f + over * 3.0f * ms.punch * fl * (1.0f + ex));
+                const float breath = 1.0f + 0.25f * fk * funkWalk;   // FUNK: the drive breathes with the filter
+                for (int c = 0; c < 2; ++c)
+                {
+                    float v = mHp.process (x[c], c);                                  // low cut
+                    if (take) mHeld[(size_t) c] = std::round (juce::jlimit (-1.0f, 1.0f, v) * qLevels) / qLevels;
+                    v = mHeld[(size_t) c];                                             // converter (rate + bits)
+                    v = mBell1.process (v, c);                                         // EQ voicing
+                    v = mBell2.process (v, c);
+                    v = machineSaturate (v, ms.satType, mDrive * breath);              // saturation
+                    { const float y = v - mDcX[(size_t) c] + 0.9985f * mDcY[(size_t) c]; mDcX[(size_t) c] = v; mDcY[(size_t) c] = y; v = y; }
+                    v *= comp * (1.0f + 0.45f * ms.punch * fl);
+                    v = mShelf.process (v, c);
+                    v = mLp.process (v, c);                                            // high cut
+                    inPow += x[c] * x[c]; outPow += v * v;
+                    v *= autoGain;                                                     // level-matched to the dry part
+                    x[c] = dry[c] + (v - dry[c]) * fl;
+                }
+            }
 
             // ---- wobble (modulated delay)
             if (wob > 0.001f)
@@ -144,6 +294,14 @@ public:
             L[i] = dry[0] + (x[0] - dry[0]) * mix;
             if (R != nullptr) R[i] = dry[1] + (x[1] - dry[1]) * mix;
         }
+        if (machineOn && inPow > 1.0e-7 && outPow > 1.0e-9)
+        {
+            // slow loudness match (about 300 ms), so a machine changes the character, not the volume
+            const float want = juce::jlimit (0.2f, 2.0f, std::sqrt (inPow / outPow));
+            const float k = 1.0f - std::exp (-(float) n / (0.3f * (float) sr));
+            autoGain += (want - autoGain) * k;
+        }
+        inPow = outPow = 0.0f;
     }
 
 private:
@@ -173,6 +331,11 @@ private:
     std::array<float, 2> lp1 {}, lp2 {}, dcX {}, dcY {}, held {}, hissLp {};
     int holdCount = 0;
     float crackle = 0;
+    double srPhase = 0;
+    float mEnv = 0;
+    std::array<float, 2> mHeld {}, mDcX {}, mDcY {};
+    Biquad mHp, mLp, mBell1, mBell2, mShelf;
+    float funkWalk = 0, autoGain = 1.0f, inPow = 0, outPow = 0;
     double wowPhase = 0, flutterPhase = 0;
     float drift = 0, driftTarget = 0;
     int driftCount = 0;

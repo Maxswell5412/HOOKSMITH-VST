@@ -1725,6 +1725,65 @@ void varyTakes (Ctx& c)
     }
 }
 
+
+// ---------------------------------------------------------------- MACHINE groove
+// The swing and timing of classic samplers, per part. MPCs swing the 16ths (50% straight,
+// 66% triplet) and play quantized-tight; the SP-1200 has its own lazy swing and a hard grid.
+void machineGroove (Ctx& c)
+{
+    struct Feel { double swing, tight; };
+    static const Feel feels[] = { { 0.50, 0.0 }, { 0.66, 0.55 }, { 0.58, 0.7 }, { 0.62, 0.6 }, { 0.61, 0.8 } };
+    for (int l = 0; l < kNumLanes; ++l)
+    {
+        const int m = c.s.machine[(size_t) l];
+        const double fl = std::clamp ((double) c.s.machineFlavor[(size_t) l], 0.0, 1.0);
+        if (m <= 0 || m > 4 || fl < 0.001) continue;
+        const double ex = std::clamp ((double) c.s.machineExaggerate[(size_t) l], 0.0, 1.0);
+        const double funk = std::clamp ((double) c.s.machineFunk[(size_t) l], 0.0, 1.0);
+        // EXAGGERATE pushes the swing toward a drunk 75%+ and locks the grid harder
+        const double baseSwing = std::min (0.8, 0.5 + (feels[m].swing - 0.5) * (1.0 + 1.6 * ex));
+        const double swing = 0.5 + (baseSwing - 0.5) * fl;
+        const double tight = std::min (0.95, feels[m].tight * (1.0 + 0.4 * ex)) * fl;
+        const uint32_t seed = (l == DrumsLane ? c.s.drumSeed : l == BassLane ? c.s.bassSeed : l == MelodyLane ? c.s.melodySeed : c.s.harmonySeed);
+        Rng r (seedFor (seed, 611 + (uint64_t) l, (uint64_t) c.s.variant[(size_t) l], (uint64_t) c.s.section));
+        // FUNK: the swing breathes bar to bar
+        std::vector<double> barSwing ((size_t) std::max (1, c.s.bars) + 1);
+        for (auto& b : barSwing) b = swing + funk * fl * (r.uni() - 0.5) * 0.1;
+
+        for (auto& n : c.p->lanes[(size_t) l])
+        {
+            const double q = std::round (n.start * 4.0) / 4.0;
+            if (std::abs (n.start - q) > 0.09) continue;    // not on the 16th grid (triplets, strums...)
+            const bool off16 = ((long long) std::llround (q * 4.0)) % 2 != 0;
+            const size_t bar = (size_t) std::clamp ((int) (q / 4.0), 0, (int) barSwing.size() - 1);
+            const double delta = 0.5 * barSwing[bar] - 0.25;
+            const double humanOff = n.start - q;
+            double ns = q + (off16 ? delta : 0.0) + humanOff * (1.0 - tight);
+            if (funk > 0.001)
+            {
+                const double k = funk * fl;
+                double push = (r.uni() - 0.5) * 0.07 * k;                         // loose hands
+                if (l == DrumsLane)
+                {
+                    if (n.pitch == Drum::Snare || n.pitch == Drum::Clap) push += 0.035 * k;   // snare lays back
+                    if (n.pitch == Drum::Kick && ! off16) push -= 0.015 * k;                // kick leans forward
+                }
+                else if (off16) push += 0.02 * k;
+                ns += push;
+                // accents: some hits pop, some fall back to ghosts
+                const double roll = r.uni();
+                int v = n.vel;
+                if (roll < 0.18 * k) v += 18;
+                else if (roll > 1.0 - 0.22 * k) v -= 28;
+                else v += (int) std::lround ((r.uni() - 0.5) * 20.0 * k);
+                n.vel = std::clamp (v, 18, 127);
+            }
+            if (off16) n.len = std::max (0.03, n.len - (ns - n.start));
+            n.start = std::max (0.0, ns);
+        }
+    }
+}
+
 // ---------------------------------------------------------------- LENGTH dial
 void applyNoteLength (Ctx& c)
 {
@@ -1783,6 +1842,7 @@ Pattern composeSection (const Settings& in)
     varyTakes (c);
     strumChords (c);
     applyGroove (c);
+    machineGroove (c);
     applyNoteLength (c);
     return p;
 }

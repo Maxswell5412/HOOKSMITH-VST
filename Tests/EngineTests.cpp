@@ -353,6 +353,57 @@ int main()
         CHECK (jumpsTotal > bassChecks / 2, "octave jumps happen");
     }
 
+
+    // ---- COLOR > MACHINE groove: swing, exaggerate, funk ------------------------
+    {
+        // how late the off 16ths land compared with the same notes without the machine
+        auto offLateVs = [] (const Pattern& base, const Pattern& p, int lane)
+        {
+            double sum = 0; int n = 0;
+            const auto& a = base.lanes[(size_t) lane]; const auto& b = p.lanes[(size_t) lane];
+            for (size_t i = 0; i < std::min (a.size(), b.size()); ++i)
+            {
+                const double q = std::round (a[i].start * 4.0) / 4.0;
+                if (std::abs (a[i].start - q) > 0.09) continue;
+                if (((long long) std::llround (q * 4.0)) % 2 != 0) { sum += b[i].start - a[i].start; ++n; }
+            }
+            return n ? sum / n : 0.0;
+        };
+        Settings s; s.genre = 5; s.section = Verse; s.bars = 8; s.key = 9; s.complexity = 0.7f;   // house: straight 16ths
+        s.harmonySeed = 5; s.melodySeed = 6; s.bassSeed = 7; s.drumSeed = 8;
+        const auto basePat = compose (s);
+        const char* names[] = { "", "MPC60", "MPC2000", "MPC3000", "SP-1200" };
+        double prev = 0;
+        for (int m = 1; m <= 4; ++m)
+        {
+            auto t = s; t.machine = { m, m, m, m }; t.machineFlavor = { 1, 1, 1, 1 };
+            const double late = offLateVs (basePat, compose (t), DrumsLane);
+            auto x = t; x.machineExaggerate = { 1, 1, 1, 1 };
+            const double lateX = offLateVs (basePat, compose (x), DrumsLane);
+            std::printf ("%s: off-16ths %.3f beats late, exaggerated %.3f\n", names[m], late, lateX);
+            CHECK (late > 0.015, "%s swings the off 16ths", names[m]);
+            CHECK (lateX > late + 0.01, "%s EXAGGERATE swings harder", names[m]);
+            prev = late;
+        }
+        (void) prev;
+        // FUNK: changes velocities and timing, stays deterministic
+        auto f = s; f.machine = { 4, 4, 4, 4 }; f.machineFlavor = { 1, 1, 1, 1 }; f.machineFunk = { 1, 1, 1, 1 };
+        const auto a = compose (f), b = compose (f);
+        auto nf = f; nf.machineFunk = { 0, 0, 0, 0 };
+        const auto c = compose (nf);
+        int velDiff = 0; bool same = a.lanes[DrumsLane].size() == b.lanes[DrumsLane].size();
+        for (size_t i = 0; same && i < a.lanes[DrumsLane].size(); ++i)
+            same = a.lanes[DrumsLane][i].start == b.lanes[DrumsLane][i].start && a.lanes[DrumsLane][i].vel == b.lanes[DrumsLane][i].vel;
+        for (size_t i = 0; i < std::min (a.lanes[DrumsLane].size(), c.lanes[DrumsLane].size()); ++i)
+            velDiff += a.lanes[DrumsLane][i].vel != c.lanes[DrumsLane][i].vel;
+        CHECK (same, "FUNK is the same every time for the same idea");
+        CHECK (velDiff > (int) c.lanes[DrumsLane].size() / 4, "FUNK changes the accents (%d)", velDiff);
+        // off when flavor is 0
+        auto z = s; z.machine = { 4, 4, 4, 4 }; z.machineFlavor = { 0, 0, 0, 0 };
+        CHECK (std::abs (offLateVs (basePat, compose (z), DrumsLane)) < 1e-9, "FLAVOR 0 leaves the groove alone");
+        for (auto& l : a.lanes) for (auto& e : l) CHECK (e.start >= 0 && e.len > 0 && e.vel >= 1 && e.vel <= 127, "machine notes valid");
+    }
+
     std::printf ("%d patterns composed, %d failures\n", total, failures);
     return failures == 0 ? 0 : 1;
 }

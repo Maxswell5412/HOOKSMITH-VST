@@ -83,6 +83,15 @@ public:
     void setLaneLocked (int lane, bool locked);
     bool isLaneLocked (int lane) const  { return locked[(size_t) lane]; }
     int  getLaneTake (int lane) const   { return takes[(size_t) lane]; }   // 0 new, 1-2 close takes
+
+    // Memory slots: keep up to 4 versions of the melody and the bass line you like
+    static constexpr int kSlots = 4;
+    static bool laneHasSlots (int lane)  { return lane == hs::MelodyLane || lane == hs::BassLane; }
+    bool slotUsed (int lane, int slot) const;
+    int  activeSlot (int lane) const;          // slot that matches what's playing, or -1
+    void storeSlot (int lane, int slot);
+    void recallSlot (int lane, int slot);
+    void clearSlot (int lane, int slot);
     hs::Settings currentSettings() const;
     const hs::Pattern& getPattern() const       { return uiPattern; }   // message thread only
     const std::array<hs::PadChord, 12>& getBank() const { return uiBank; }
@@ -128,6 +137,7 @@ public:
     static juce::StringArray playModeNames();
     static juce::StringArray soundNames();
     static juce::String laneParam (int lane, const char* what);
+    static juce::StringArray machineNames() { return { "Off", "MPC60", "MPC2000", "MPC3000", "SP-1200" }; }
     // Built-in sounds per part. Menu index 0 = Auto (the genre's sound).
     static const std::vector<int>& patchList (int lane);
     int builtInPatch (int lane) const;     // the patch the part plays now (Auto resolved)
@@ -152,7 +162,7 @@ private:
                        *pGroove, *pHumanize, *pMode, *pPlay, *pBpm, *pMidiOut, *pSketchVol,
                        *pFeel, *pFeelAmt, *pPocket, *pDynamics, *pStrum;
     std::array<std::atomic<float>*, kArpLanes> pArpOn {}, pArpRate {}, pArpMode {}, pArpOct {}, pArpGate {};
-    std::array<std::atomic<float>*, hs::kNumLanes> pLaneOn {}, pLaneSound {}, pLaneOct {}, pLaneVol {}, pLaneLen {}, pLanePatch {};
+    std::array<std::atomic<float>*, hs::kNumLanes> pLaneOn {}, pLaneSound {}, pLaneOct {}, pLaneVol {}, pLaneLen {}, pLanePatch {}, pMachine {}, pFlavor {}, pExag {}, pFunk {};
     std::array<std::atomic<float>*, hs::kNumLanes> pColOn {}, pDrive {}, pWobble {}, pNoise {}, pCrush {}, pTone {}, pColMix {};
     std::atomic<float> *pTapeStop = nullptr, *pTapeLoop = nullptr, *pTapeTime = nullptr, *pTapeStart = nullptr;
 
@@ -160,6 +170,8 @@ private:
     std::array<juce::uint32, hs::kNumLanes> seeds { 1, 2, 3, 4 };
     std::array<bool, hs::kNumLanes> locked {};
     std::array<int, hs::kNumLanes> takes { 2, 2, 2, 2 };   // 0 = new idea, 1 and 2 = close takes of it
+    struct Memory { bool used = false; juce::uint32 seed = 0; int take = 0; };
+    std::array<std::array<Memory, 4>, hs::kNumLanes> memories {};
     bool seedsDirty = true;
     void nextTake (const std::array<bool, hs::kNumLanes>& lanes);   // the GENERATE cycle
     hs::Settings lastSettings;
