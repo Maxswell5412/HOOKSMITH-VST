@@ -13,13 +13,13 @@ HOOKSMITH writes **chords, melodies, bass lines and drums** for 17 genres and ev
 
 ## Download (free)
 
-**[Get the latest HOOKSMITH release](../../releases/latest)** and pick the zip for your computer:
+Click the zip for your computer to download it (or see **[all releases](https://github.com/Maxswell5412/HOOKSMITH-VST/releases/latest)**):
 
 | Computer | File | Formats |
 |---|---|---|
-| Mac (Apple Silicon + Intel) | `HOOKSMITH-Mac.zip` | AU + VST3 |
-| Windows (64-bit) | `HOOKSMITH-Windows.zip` | VST3 |
-| Linux (64-bit) | `HOOKSMITH-Linux.zip` | VST3 + standalone app |
+| Mac (Apple Silicon + Intel) | **[⬇ HOOKSMITH-Mac.zip](https://github.com/Maxswell5412/HOOKSMITH-VST/releases/latest/download/HOOKSMITH-Mac.zip)** | AU + VST3 |
+| Windows (64-bit) | **[⬇ HOOKSMITH-Windows.zip](https://github.com/Maxswell5412/HOOKSMITH-VST/releases/latest/download/HOOKSMITH-Windows.zip)** | VST3 |
+| Linux (64-bit) | **[⬇ HOOKSMITH-Linux.zip](https://github.com/Maxswell5412/HOOKSMITH-VST/releases/latest/download/HOOKSMITH-Linux.zip)** | VST3 + standalone app |
 
 Each zip has a short **Install** text inside. Works in Ableton Live, FL Studio, Logic Pro (AU), Bitwig, REAPER and more.
 
