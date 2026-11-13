@@ -484,7 +484,8 @@ void LaneStrip::showWindow (bool show)
         shown = proc.getInstrument (lane);
         window = std::make_unique<HostedWindow> (*shown, [this]
         {
-            juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<LaneStrip> (this)]
+            juce::Component::SafePointer<LaneStrip> safe (this);
+            juce::MessageManager::callAsync ([safe]
             { if (safe != nullptr) safe->showWindow (false); });
         });
     }
@@ -592,7 +593,8 @@ HooksmithPanel::HooksmithPanel (HooksmithProcessor& p)
             if (r == 1)
             {
                 setStatus ("CAPTURING...");
-                juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<HooksmithPanel> (this)]
+                juce::Component::SafePointer<HooksmithPanel> safe (this);
+                juce::MessageManager::callAsync ([safe]
                 {
                     if (safe != nullptr) safe->setStatus (safe->proc.captureFromChordsPlugin());
                 });
