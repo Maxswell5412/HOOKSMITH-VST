@@ -1,0 +1,98 @@
+# Builds HOOKSMITH for Mac (AU + VST3, Intel + Apple Silicon), Windows (VST3) and Linux (VST3 + app).
+# Every push makes test builds; pushing a tag like v0.2.2 publishes a free GitHub Release with all three zips.
+name: Build HOOKSMITH
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Build (universal: Intel + Apple Silicon)"
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DHS_COPY_AFTER_BUILD=OFF \
+                -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+          cmake --build build --config Release -j4 --target Hooksmith_AU Hooksmith_VST3
+      - name: Sign (ad-hoc) and package
+        run: |
+          A=build/Hooksmith_artefacts/Release
+          codesign --force --deep --sign - "$A/AU/HOOKSMITH.component"
+          codesign --force --deep --sign - "$A/VST3/HOOKSMITH.vst3"
+          mkdir -p "dist/HOOKSMITH-Mac"
+          cp -R "$A/AU/HOOKSMITH.component" "$A/VST3/HOOKSMITH.vst3" "dist/HOOKSMITH-Mac/"
+          cp "Install/Install on Mac.txt" LICENSE "dist/HOOKSMITH-Mac/"
+          cd dist && ditto -c -k --keepParent "HOOKSMITH-Mac" "HOOKSMITH-Mac.zip"
+      - uses: actions/upload-artifact@v4
+        with: { name: HOOKSMITH-Mac, path: dist/HOOKSMITH-Mac.zip }
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (64-bit VST3)
+        run: |
+          cmake -B build -G "Visual Studio 17 2022" -A x64 -DHS_COPY_AFTER_BUILD=OFF
+          cmake --build build --config Release --target Hooksmith_VST3 -- /m
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "dist/HOOKSMITH-Windows" | Out-Null
+          Copy-Item -Recurse "build/Hooksmith_artefacts/Release/VST3/HOOKSMITH.vst3" "dist/HOOKSMITH-Windows/"
+          Copy-Item "Install/Install on Windows.txt", LICENSE "dist/HOOKSMITH-Windows/"
+          Compress-Archive -Path "dist/HOOKSMITH-Windows" -DestinationPath "dist/HOOKSMITH-Windows.zip"
+      - uses: actions/upload-artifact@v4
+        with: { name: HOOKSMITH-Windows, path: dist/HOOKSMITH-Windows.zip }
+
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev \
+            libglu1-mesa-dev mesa-common-dev libcurl4-openssl-dev
+      - name: Build (64-bit VST3 + standalone app)
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DHS_COPY_AFTER_BUILD=OFF
+          cmake --build build -j4 --target Hooksmith_VST3 Hooksmith_Standalone
+      - name: Package
+        run: |
+          A=build/Hooksmith_artefacts/Release
+          mkdir -p "dist/HOOKSMITH-Linux"
+          cp -R "$A/VST3/HOOKSMITH.vst3" "dist/HOOKSMITH-Linux/"
+          cp "$A/Standalone/HOOKSMITH" "dist/HOOKSMITH-Linux/"
+          cp "Install/Install on Linux.txt" LICENSE "dist/HOOKSMITH-Linux/"
+          cd dist && zip -qr "HOOKSMITH-Linux.zip" "HOOKSMITH-Linux"
+      - uses: actions/upload-artifact@v4
+        with: { name: HOOKSMITH-Linux, path: dist/HOOKSMITH-Linux.zip }
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [mac, windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: HOOKSMITH ${{ github.ref_name }}
+          files: dist/*.zip
+          body: |
+            **HOOKSMITH is free.** Download the zip for your computer, unzip it and follow the Install text inside.
+
+            - **Mac** (Apple Silicon + Intel): HOOKSMITH-Mac.zip (AU + VST3)
+            - **Windows** (64-bit): HOOKSMITH-Windows.zip (VST3)
+            - **Linux** (64-bit): HOOKSMITH-Linux.zip (VST3 + standalone app)
+
+            Free forever. If it helps your music and you want to support the culture, use the **Sponsor** button at the top of the page.
+

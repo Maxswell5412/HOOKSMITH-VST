@@ -1,0 +1,32 @@
+HOOKSMITH by MB Audio - install on Windows
+==========================================
+Works on 64-bit Windows 10 and 11. Format: VST3 (Ableton, FL Studio, Reaper,
+Bitwig, Studio One, Cubase...).
+
+1. Right-click HOOKSMITH-Windows.zip and choose "Extract All...".
+
+2. Open File Explorer and paste this into the address bar, then press Enter:
+      C:\Program Files\Common Files\VST3
+   (Create the VST3 folder if it isn't there.)
+
+3. Drag the whole HOOKSMITH.vst3 folder into it. Click "Continue" if Windows
+   asks for administrator permission.
+
+4. Open your DAW and rescan plug-ins.
+   Ableton: Options > Preferences > Plug-Ins > turn on
+   "Use VST3 Plug-In System Folders", then click Rescan.
+   FL Studio: Options > Manage plugins > Find more plugins.
+   HOOKSMITH appears under MB Audio as an instrument.
+
+QUICK START
+- Put HOOKSMITH on a MIDI / instrument track and press play.
+  You'll hear the built-in sounds right away.
+- Pick a Genre, Key, Section (Hook) and Length, then hit GENERATE ALL.
+- Each part (Chords, Melody, Bass, Drums) has its own GENERATE and LOCK.
+- LOAD on a part puts your own synth on it (Serum, Omnisphere, Vital...).
+  On Windows it loads VST3 instruments.
+- GROOVE makes it feel played, COLOR adds tape warmth, TAPE STOP slows it to a halt.
+- Drag a DRAG MIDI tile into your DAW to drop the part as a MIDI clip.
+
+If Windows Defender / SmartScreen warns about it, that's because it isn't
+code-signed yet. Choose "More info" > "Run anyway" or allow it.
