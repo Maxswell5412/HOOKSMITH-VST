@@ -38,7 +38,7 @@ int main()
         c = parseRoman ("V13");        CHECK (c.ok && c.rootRel == 7 && c.q == Q::Dom13, "V13");
         c = parseRoman ("#ivdim");     CHECK (c.ok && c.rootRel == 6 && c.q == Q::Dim, "#ivdim");
         c = parseRoman ("viidim7");    CHECK (c.ok && c.rootRel == 11 && c.q == Q::Dim7, "viidim7");
-        Settings s; s.genre = 0; s.key = 9; s.scale = 1; s.progression = 1; s.complexity = 0.0f; s.bars = 4;
+        Settings s; s.genre = 0; s.key = 9; s.scale = 1; s.progression = 1; s.complexity = 0.0f; s.bars = 4; s.spice = 0.0f;
         auto p = compose (s);   // A major, I V vi IV, triads
         CHECK (p.chords.size() == 4, "4 chords, got %zu", p.chords.size());
         if (p.chords.size() == 4)
@@ -97,6 +97,7 @@ int main()
                     for (auto& n : p.lanes[MelodyLane])
                     {
                         if (std::abs (n.start - std::round (n.start)) > 0.02) continue;
+                        if (n.len < 0.2) continue;   // quick ornaments (soul runs) aren't structural
                         const ChordSpan* cs = &p.chords.front();
                         for (auto& ch : p.chords) if (n.start + 0.02 >= ch.start) cs = &ch;
                         std::set<int> pcs; for (int x : cs->notes) pcs.insert (x % 12);
@@ -140,7 +141,10 @@ int main()
         for (size_t i = 1; i < p.chords.size(); ++i)
         {
             int maxMove = 0;
-            for (int n : p.chords[i].notes) { int best = 99; for (int m : p.chords[i - 1].notes) best = std::min (best, std::abs (n - m)); maxMove = std::max (maxMove, best); }
+            // the bass note follows the root (a left hand); the upper voices should move little
+            auto upper = [] (std::vector<int> v) { std::sort (v.begin(), v.end()); if (v.size() > 3) v.erase (v.begin()); return v; };
+            const auto a = upper (p.chords[i - 1].notes), b = upper (p.chords[i].notes);
+            for (int n : b) { int best = 99; for (int m : a) best = std::min (best, std::abs (n - m)); maxMove = std::max (maxMove, best); }
             CHECK (maxMove <= 7, "voice leading jump %d between %s and %s", maxMove, p.chords[i - 1].name.c_str(), p.chords[i].name.c_str());
         }
     }

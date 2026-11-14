@@ -158,7 +158,7 @@ private:
     void emitNote (int lane, bool on, int pitch, int vel, int pos);
 
     // Parameters
-    std::atomic<float> *pGenre, *pSection, *pBars, *pKey, *pScale, *pProg, *pComplexity, *pDensity,
+    std::atomic<float> *pGenre, *pSection, *pBars, *pKey, *pScale, *pProg, *pSpice, *pComplexity, *pDensity,
                        *pGroove, *pHumanize, *pMode, *pPlay, *pBpm, *pMidiOut, *pSketchVol,
                        *pFeel, *pFeelAmt, *pPocket, *pDynamics, *pStrum;
     std::array<std::atomic<float>*, kArpLanes> pArpOn {}, pArpRate {}, pArpMode {}, pArpOct {}, pArpGate {};

@@ -105,6 +105,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout HooksmithProcessor::createLa
     choice ("key",     "Key",     toStringArray (keyNames()), 0);
     choice ("scale",   "Scale",   toStringArray (scaleNames()), 0);
     layout.add (std::make_unique<AudioParameterInt> (ParameterID { "prog", 1 }, "Progression", 0, 24, 0));
+    layout.add (std::make_unique<AudioParameterFloat> (ParameterID { "spice", 1 }, "Spice", NormalisableRange<float> (0.0f, 1.0f), 0.4f,
+                                                       AudioParameterFloatAttributes().withStringFromValueFunction (
+                                                           [] (float v, int) { return String (roundToInt (v * 100.0f)) + "%"; })));
     flt ("complexity", "Complexity", 0.0f, 1.0f, 0.5f);
     flt ("density",    "Density",    0.0f, 1.0f, 0.5f);
     flt ("groove",     "Swing",      0.0f, 1.0f, 0.5f);
@@ -189,6 +192,7 @@ HooksmithProcessor::HooksmithProcessor()
 
     auto raw = [this] (const juce::String& id) { return apvts.getRawParameterValue (id); };
     pGenre = raw ("genre"); pSection = raw ("section"); pBars = raw ("bars"); pKey = raw ("key");
+    pSpice = raw ("spice");
     pScale = raw ("scale"); pProg = raw ("prog"); pComplexity = raw ("complexity"); pDensity = raw ("density");
     pGroove = raw ("groove"); pHumanize = raw ("humanize"); pMode = raw ("mode"); pPlay = raw ("play");
     pBpm = raw ("bpm"); pMidiOut = raw ("midiOut"); pSketchVol = raw ("sketchVol");
@@ -261,6 +265,7 @@ hs::Settings HooksmithProcessor::currentSettings() const
     s.key = (int) pKey->load();
     s.scale = (int) pScale->load();
     s.progression = (int) pProg->load();
+    s.spice = std::round (pSpice->load() * 50.0f) / 50.0f;
     if (s.progression > (int) progressionNames (s.genre).size()) s.progression = 0;
     if (juce::isPositiveAndBelow (activeImport, (int) imports.size()))
         s.imported = imports[(size_t) activeImport];   // an imported MIDI file replaces the PROGRESSOR
@@ -291,7 +296,7 @@ bool HooksmithProcessor::settingsChanged (const Settings& s) const
 {
     const auto& o = lastSettings;
     return s.genre != o.genre || s.section != o.section || s.bars != o.bars || s.key != o.key
-        || s.scale != o.scale || s.progression != o.progression
+        || s.scale != o.scale || s.progression != o.progression || s.spice != o.spice
         || std::abs (s.complexity - o.complexity) > 1.0e-4f || std::abs (s.density - o.density) > 1.0e-4f
         || std::abs (s.groove - o.groove) > 1.0e-4f || std::abs (s.humanize - o.humanize) > 1.0e-4f
         || s.feel != o.feel || std::abs (s.feelAmount - o.feelAmount) > 1.0e-4f || std::abs (s.pocket - o.pocket) > 1.0e-4f

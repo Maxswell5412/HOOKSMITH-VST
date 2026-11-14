@@ -685,9 +685,12 @@ HooksmithPanel::HooksmithPanel (HooksmithProcessor& p)
 
     complexity.setTooltip ("COMPLEXITY: richer chords (7ths, 9ths), more variation");
     density.setTooltip ("DENSITY: how many notes and hits");
-    for (auto* k : { &complexity, &density }) addAndMakeVisible (*k);
+    spice.setTooltip ("SPICE: passing chords, early chord changes, sus that resolves, wide voicings with a singing top note");
+    for (auto* k : { &complexity, &density, &spice }) addAndMakeVisible (*k);
     complexityA = std::make_unique<SA> (proc.apvts, "complexity", complexity);
     densityA    = std::make_unique<SA> (proc.apvts, "density", density);
+    spiceA      = std::make_unique<SA> (proc.apvts, "spice", spice);
+    spice.setDoubleClickReturnValue (true, 0.4);
 
     // GROOVE module
     addItems (feel, hs::feelNames());
@@ -1004,9 +1007,9 @@ void HooksmithPanel::resized()
         pads[blackSlots[i]]->setBounds (cx - ww * 4 / 10, padTop, ww * 8 / 10, 54);
     }
     auto kr = juce::Rectangle<int> (pr.getX(), progArea.getY() + 196, pr.getWidth(), 60);
-    const int kw = kr.getWidth() / 2;
-    for (auto* k : { &complexity, &density })
-        k->setBounds (kr.removeFromLeft (kw).withSizeKeepingCentre (58, 58));
+    const int kw = kr.getWidth() / 3;
+    for (auto* k : { &complexity, &density, &spice })
+        k->setBounds (kr.removeFromLeft (kw).withSizeKeepingCentre (54, 54));
 
     // GROOVE
     auto gr = grooveArea.reduced (14, 0);
@@ -1139,6 +1142,7 @@ void HooksmithPanel::renderBackground()
     };
     knobLabel (complexity, "COMPLEXITY");
     knobLabel (density, "DENSITY");
+    knobLabel (spice, "SPICE");
 
     title (grooveArea, "GROOVE", "the feel: timing, accents and swing");
     caption (feel, "FEEL", -16.0f);

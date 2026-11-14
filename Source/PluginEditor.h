@@ -186,8 +186,8 @@ private:
     std::unique_ptr<juce::FileChooser> importChooser;
     bool dragHover = false;
     juce::OwnedArray<hsui::ChordPad> pads;
-    ui::Knob complexity, density;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> complexityA, densityA;
+    ui::Knob complexity, density, spice;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> complexityA, densityA, spiceA;
 
     // GROOVE module
     juce::ComboBox feel;

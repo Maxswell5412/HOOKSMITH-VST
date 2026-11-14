@@ -49,6 +49,25 @@ Needs CMake 3.22+ and a C++17 compiler (Xcode on Mac, Visual Studio 2022 on Wind
 
 ---
 
+## New in v0.4: better chords and melodies
+- **New progression bank** in the style of classic R&B, soul, house and West Coast hip hop:
+  - two-chord minor vamps and falling maj7 chains
+  - dark half-step "phrygian" house moves
+  - sus chords over a moving bass, and minor walks
+  - gospel lifts, neo-soul two-fives and backdoor turns
+- **New chord colours:** 7sus2, 6/9, 7#9, 7b9, maj7#11, maj7sus2, plus slash chords (a different bass note).
+- **SPICE knob:**
+  - passing chords: secondary dominants, tritone subs, passing diminished chords and chromatic slides
+  - early chord changes (pushes)
+  - a sus4 that resolves
+  - wide "melodic chord" voicings: a low bass note, spread shells, and a top note that keeps singing
+- **Melodies rebuilt:**
+  - real hook rhythms (pop, R&B syncopation, rap-busy and dance stabs)
+  - a phrase that rises and falls, with a call-and-answer shape
+  - chord tones on the beat and pentatonic notes in between
+  - R&B, neo-soul and gospel melodies sometimes add a quick soul run into the last note
+- **Rhythmic chord patterns:** short syncopated stabs mixed with holds (the 3-3-2 feel).
+
 ## New in v0.3
 - **MACHINE (in COLOR):** give any part the sound *and* swing of a classic sampler: **MPC60, MPC2000, MPC3000 or SP-1200**. Each one has its own converter (sample rate and bits), filters, EQ voicing and saturation, plus its classic swing.
   - **FLAVOR** sets how much of the machine you hear and feel.
