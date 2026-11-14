@@ -133,6 +133,39 @@ int main()
         CHECK (ons == offs && ons >= 3, "chord released (%d on %d off)", ons, offs);
     }
 
+    // ------------------------------------------------------------ new chords are heard while playing
+    // (bug: two quick updates jammed the hand-over to the audio, the screen changed but the sound didn't)
+    {
+        HooksmithProcessor p; FakeHead head; head.playing = true; head.ppq = 0.0;
+        p.setPlayHead (&head); p.setPlayConfigDetails (0, 2, sr, block); p.prepareToPlay (sr, block);
+        p.generateAll(); p.refreshNow();
+        run (p, head, 50, block, sr);
+        int matched = 0;
+        for (int round = 0; round < 6; ++round)
+        {
+            p.rerollLane (hs::ChordsLane);
+            p.rerollLane (hs::ChordsLane);          // two updates back to back
+            run (p, head, 2, block, sr);            // the audio picks one up
+            p.refreshNow();                         // timer tick
+            p.rerollLane (hs::ChordsLane);
+            p.refreshNow(); p.refreshNow();
+            run (p, head, 4, block, sr);
+            p.refreshNow();
+            std::set<int> want;
+            for (auto& e : p.getPattern().lanes[hs::ChordsLane]) want.insert (e.pitch);
+            head.ppq = 0.0;
+            const auto evs = run (p, head, (int) (samplesPerBeat * 8 / block), block, sr);
+            std::set<int> got;
+            for (auto& e : evs) if (e.on && e.ch == 1) got.insert (e.note);
+            bool subset = ! got.empty();
+            for (int n : got) subset = subset && want.count (n) > 0;
+            if (subset) ++matched;
+            else { std::string a, b; for (int n : got) a += std::to_string (n) + " "; for (int n : want) b += std::to_string (n) + " ";
+                   std::printf ("  round %d plays [%s] but the screen shows [%s]\n", round, a.c_str(), b.c_str()); }
+        }
+        CHECK (matched == 6, "chords GENERATE while playing: you hear the new chords (%d/6 rounds)", matched);
+    }
+
     // ------------------------------------------------------------ Hold-a-key mode transposes
     {
         HooksmithProcessor p; FakeHead head; head.playing = false;

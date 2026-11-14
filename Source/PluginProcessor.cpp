@@ -340,7 +340,7 @@ void HooksmithProcessor::timerCallback()
     std::unique_ptr<PlayData> trash;
     {
         const juce::SpinLock::ScopedTryLockType tl (swapLock);
-        if (tl.isLocked() && pending == nullptr) trash = std::move (retired);
+        if (tl.isLocked()) trash = std::move (retired);   // the audio thread never touches it again once it is here
     }
 }
 

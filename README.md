@@ -49,6 +49,9 @@ Needs CMake 3.22+ and a C++17 compiler (Xcode on Mac, Visual Studio 2022 on Wind
 
 ---
 
+## New in v0.5.1
+- **Fixed:** after GENERATE (or GENERATE ALL) the screen showed the new pattern but the old one kept playing. You now hear every new idea straight away.
+
 ## New in v0.5
 - **PART TONE** panel, one per part (tabs for chords, melody, bass, drums):
   - **STRUM**: chords roll like a guitar (down on the beat, up off it), single notes lay back behind the beat
