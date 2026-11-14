@@ -46,6 +46,8 @@ const std::vector<std::string>& scaleNames();     // index 0 = Auto
 const std::vector<std::string>& keyNames();
 const std::vector<std::string>& laneNames();
 const std::vector<std::string>& feelNames();      // GROOVE module feels, index 0 = genre default
+const std::vector<std::string>& harmonyNames();   // melody HARMONY: Off, 3rds Up, 3rds Down, 6ths Down, Octave Up ...
+const std::vector<std::string>& melodyFlavorNames();   // melody FLAVOR: Auto, Catchy, Soulful, Rap Flow ...
 int genreDefaultBpm (int genre);
 
 // ---- Chords ------------------------------------------------------------------
@@ -152,6 +154,10 @@ struct Settings
     std::array<float, kNumLanes> machineFlavor { 0.5f, 0.5f, 0.5f, 0.5f };
     std::array<float, kNumLanes> machineExaggerate { 0, 0, 0, 0 };   // push the machine past its real specs
     std::array<float, kNumLanes> machineFunk { 0, 0, 0, 0 };         // random push/pull and accents
+    // PART TONE: STRUM per part (chords roll like a guitar, single notes lay back), 0..1
+    std::array<float, kNumLanes> laneStrum { 0, 0, 0, 0 };
+    int melodyHarmony = 0;       // HARMONY: index into harmonyNames() (0 = off)
+    int melodyFlavor = 0;        // melody FLAVOR: index into melodyFlavorNames() (0 = the genre's own)
     std::shared_ptr<const ImportedProgression> imported;   // set = use these chords instead of the PROGRESSOR
 };
 

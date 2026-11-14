@@ -1,6 +1,7 @@
 // Drives HOOKSMITH like a DAW would and checks what comes out.
 #include "../Source/PluginProcessor.h"
 #include <cstdio>
+#include <cmath>
 #include <cstdlib>
 #include <set>
 
@@ -319,6 +320,26 @@ int main()
             CHECK (! pat.lanes[0].empty() && ! pat.lanes[1].empty(), "imported chords play with a melody");
         }
         std::printf ("imported %d files\n", ok);
+    }
+
+    // ---- PART TONE: bus gain pushes louder but stays in control; filters work
+    {
+        hs::PartTone pt; pt.prepare (48000.0);
+        std::vector<float> L (48000), R (48000);
+        auto fill = [&] { for (int i = 0; i < 48000; ++i) { const float x = 0.25f * std::sin (6.2831853f * 110.0f * i / 48000.0f) + 0.15f * std::sin (6.2831853f * 3000.0f * i / 48000.0f); L[(size_t) i] = R[(size_t) i] = x; } };
+        auto rms = [&] { double a = 0; for (int i = 24000; i < 48000; ++i) a += L[(size_t) i] * L[(size_t) i]; return std::sqrt (a / 24000.0); };
+        fill(); const double dry = rms();
+        hs::PartToneSettings ts; ts.gain = 1.0f;
+        fill(); pt.prepare (48000.0); pt.process (L.data(), R.data(), 48000, ts); const double pushed = rms();
+        float peak = 0; bool finite = true; for (float x : L) { peak = std::max (peak, std::abs (x)); finite = finite && std::isfinite (x); }
+        CHECK (finite && pushed > dry * 1.3 && peak < 1.5f && pt.gainReductionDb() > 1.0f, "GAIN pushed: louder (%.2fx), compressed (%.1f dB), peak %.2f", pushed / dry, pt.gainReductionDb(), peak);
+        ts = {}; ts.gain = 0.5f; fill(); pt.prepare (48000.0); pt.process (L.data(), R.data(), 48000, ts);
+        CHECK (std::abs (rms() - dry) < 1e-6, "GAIN in the middle = untouched");
+        ts = {}; ts.lp = 0.0f; fill(); pt.prepare (48000.0); pt.process (L.data(), R.data(), 48000, ts);
+        CHECK (rms() < dry * 0.9, "LOW PASS cuts the 3 kHz tone");
+        ts = {}; ts.hp = 0.9f; fill(); pt.prepare (48000.0); pt.process (L.data(), R.data(), 48000, ts);
+        CHECK (rms() < dry * 0.75, "HIGH PASS cuts the 110 Hz tone");
+        std::printf ("part tone ok\n");
     }
 
     // ---- memory slots (melody + bass) ---------------------------------------------

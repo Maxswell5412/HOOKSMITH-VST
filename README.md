@@ -49,7 +49,13 @@ Needs CMake 3.22+ and a C++17 compiler (Xcode on Mac, Visual Studio 2022 on Wind
 
 ---
 
-## New in v0.4.2
+## New in v0.5
+- **PART TONE** panel, one per part (tabs for chords, melody, bass, drums):
+  - **STRUM**: chords roll like a guitar (down on the beat, up off it), single notes lay back behind the beat
+  - **HIGH PASS** and **LOW PASS** filters
+  - **GAIN**: middle = as is, right pushes the part into a console-style bus compressor (4:1, auto release, a little saturation) for punch and glue
+- **MELODY HARMONY**: a second voice that follows the melody in the key (3rds up or down, 6ths, octaves, 5ths, power, triad stack, or the chord tones)
+- **MELODY FLAVOR**: Catchy, Soulful (runs), Rap Flow, Dreamy, Bluesy (blue-note slides), Pentatonic, Latin (pushes), Jazz (chromatic approach notes)
 - **Country** genre: I-IV-V, the vi heartache, bass walkdowns, boom-chick bass and a train beat.
 - **Four save slots on the chords**, like melody and bass: keep the progressions you like and bring them back.
 - **Chords GENERATE always writes a new progression**, and each new one sits in its own register (low and dark to high and bright).

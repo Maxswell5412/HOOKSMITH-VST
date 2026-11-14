@@ -408,6 +408,53 @@ int main()
         for (auto& l : a.lanes) for (auto& e : l) CHECK (e.start >= 0 && e.len > 0 && e.vel >= 1 && e.vel <= 127, "machine notes valid");
     }
 
+    // ---- MELODY HARMONY, MELODY FLAVOR, PART STRUM ------------------------------------
+    {
+        Settings s; s.genre = 11; s.bars = 8; s.key = 9; s.melodySeed = 4242; s.harmonySeed = 99;
+        const auto base = compose (s);
+        const size_t n0 = base.lanes[MelodyLane].size();
+        const int scaleMaj[] = { 0, 2, 4, 5, 7, 9, 11 }, scaleMin[] = { 0, 2, 3, 5, 7, 8, 10 };
+        for (int h = 1; h < (int) harmonyNames().size(); ++h)
+        {
+            auto t = s; t.melodyHarmony = h;
+            const auto p = compose (t);
+            const size_t n1 = p.lanes[MelodyLane].size();
+            CHECK (n1 > n0, "harmony %s adds notes (%zu -> %zu)", harmonyNames()[(size_t) h].c_str(), n0, n1);
+            int inKey = 0, tot = 0;
+            for (auto& e : p.lanes[MelodyLane])
+            {
+                ++tot;
+                const int rel = ((e.pitch - (p.minor ? 0 : 0) - 9) % 12 + 12) % 12;
+                for (int k : (p.minor ? scaleMin : scaleMaj)) if (k == rel) { ++inKey; break; }
+                CHECK (e.pitch >= 36 && e.pitch <= 100, "harmony range");
+            }
+            CHECK (inKey >= tot * 0.75, "harmony %s stays in key (%d/%d)", harmonyNames()[(size_t) h].c_str(), inKey, tot);
+        }
+        std::set<std::string> rhythms;
+        for (int f = 0; f < (int) melodyFlavorNames().size(); ++f)
+        {
+            auto t = s; t.melodyFlavor = f;
+            const auto p = compose (t);
+            CHECK (! p.lanes[MelodyLane].empty(), "flavor %s writes a melody", melodyFlavorNames()[(size_t) f].c_str());
+            std::string sig;
+            for (auto& e : p.lanes[MelodyLane]) { sig += std::to_string ((int) std::lround (e.start * 8)) + "," + std::to_string (e.pitch) + " "; CHECK (e.len > 0 && e.vel >= 1 && e.vel <= 127, "flavor note valid"); }
+            rhythms.insert (sig);
+            ++total;
+        }
+        CHECK (rhythms.size() >= 7, "melody flavors sound different (%zu of %zu)", rhythms.size(), melodyFlavorNames().size());
+        // strum: bass notes lay back, chord notes roll
+        auto t = s; t.laneStrum = { 1.0f, 0.0f, 1.0f, 0.0f };
+        const auto st = compose (t);
+        double bassLate = 0; size_t k = 0;
+        for (size_t i = 0; i < std::min (st.lanes[BassLane].size(), base.lanes[BassLane].size()); ++i, ++k) bassLate += st.lanes[BassLane][i].start - base.lanes[BassLane][i].start;
+        CHECK (k > 0 && bassLate / (double) k > 0.01, "bass STRUM lays back (%.3f beats)", k ? bassLate / (double) k : 0.0);
+        double spread0 = 0, spread1 = 0;
+        for (auto& e : base.lanes[ChordsLane]) spread0 += e.start - std::round (e.start * 4) / 4;
+        for (auto& e : st.lanes[ChordsLane]) spread1 += e.start - std::round (e.start * 4) / 4;
+        CHECK (spread1 > spread0 + 0.01 * (double) st.lanes[ChordsLane].size(), "chord STRUM rolls the notes (%.2f vs %.2f)", spread1, spread0);
+        std::printf ("melody harmony + flavor + strum ok\n");
+    }
+
     std::printf ("%d patterns composed, %d failures\n", total, failures);
     return failures == 0 ? 0 : 1;
 }

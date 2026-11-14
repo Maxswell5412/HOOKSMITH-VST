@@ -789,6 +789,33 @@ HooksmithPanel::HooksmithPanel (HooksmithProcessor& p)
     for (auto* k : { &drive, &wobble, &noise, &crush, &tone, &colMix, &machine, &flavor, &exag, &funk }) addAndMakeVisible (*k);
     selectColorLane (0);
 
+    // PART TONE
+    for (int l = 0; l < hs::kNumLanes; ++l)
+    {
+        auto* t = partTabs.add (new LedButton (juce::String (hs::laneNames()[(size_t) l]), laneColour (l)));
+        t->setTooltip ("Show the " + juce::String (hs::laneNames()[(size_t) l]).toLowerCase() + " PART TONE settings");
+        t->onClick = [this, l] { selectPartLane (l); };
+        addAndMakeVisible (t);
+    }
+    pStrum.setTooltip ("STRUM: notes played together roll like a guitar (down on the beat, up off it). Single notes lay back behind the beat");
+    pHp.setTooltip ("HIGH PASS: cuts the lows of this part (off at the left, up to 1.5 kHz)");
+    pLp.setTooltip ("LOW PASS: cuts the highs of this part (off at the right, down to 300 Hz)");
+    pGain.setTooltip ("GAIN: middle = as is. Left = quieter. Right = pushes the part into a console bus compressor (4:1, auto release, a little saturation): louder, punchier, glued");
+    pGain.setBipolar (true);
+    pGain.setDoubleClickReturnValue (true, 0.5);
+    pStrum.setDoubleClickReturnValue (true, 0.0);
+    pHp.setDoubleClickReturnValue (true, 0.0);
+    pLp.setDoubleClickReturnValue (true, 1.0);
+    for (auto* k : { &pStrum, &pHp, &pLp, &pGain }) addAndMakeVisible (*k);
+    addItems (melHarm, hs::harmonyNames());
+    addItems (melFlavor, hs::melodyFlavorNames());
+    melHarm.setTooltip ("MELODY HARMONY: a second voice that follows the melody in the key - 3rds, 6ths, octaves, 5ths, stacks, or the chord tones");
+    melFlavor.setTooltip ("MELODY FLAVOR: how the hooks are written - Catchy, Soulful (runs), Rap Flow, Dreamy, Bluesy (blue-note slides), Pentatonic, Latin (pushes), Jazz (chromatic approaches)");
+    addAndMakeVisible (melHarm); addAndMakeVisible (melFlavor);
+    melHarmA = std::make_unique<CA> (proc.apvts, "melHarm", melHarm);
+    melFlavorA = std::make_unique<CA> (proc.apvts, "melFlavor", melFlavor);
+    selectPartLane (hs::BassLane);
+
     // TAPE STOP
     tapeButton.getProperties().set ("accent", true);
     tapeButton.setTooltip ("Hold to slow the whole beat down to a stop, let go to spin it back up. With LATCH on, click once to stop and again to start");
@@ -857,6 +884,20 @@ void HooksmithPanel::selectColorLane (int lane)
     for (int i = 0; i < colorTabs.size(); ++i) colorTabs[i]->setToggleState (i == colorLane, juce::dontSendNotification);
     colorOnButton.getProperties().set ("ledColour", (juce::int64) laneColour (colorLane).getARGB());
     colorOnButton.repaint();
+}
+
+void HooksmithPanel::selectPartLane (int lane)
+{
+    partLane = juce::jlimit (0, hs::kNumLanes - 1, lane);
+    auto id = [this] (const char* w) { return HooksmithProcessor::laneParam (partLane, w); };
+    pStrumA.reset(); pHpA.reset(); pLpA.reset(); pGainA.reset();
+    pStrumA = std::make_unique<SA> (proc.apvts, id ("pstrum"), pStrum);
+    pHpA    = std::make_unique<SA> (proc.apvts, id ("hp"), pHp);
+    pLpA    = std::make_unique<SA> (proc.apvts, id ("lp"), pLp);
+    pGainA  = std::make_unique<SA> (proc.apvts, id ("gain"), pGain);
+    pStrum.setEnabled (partLane != hs::DrumsLane);
+    for (int i = 0; i < partTabs.size(); ++i) partTabs[i]->setToggleState (i == partLane, juce::dontSendNotification);
+    repaint (partArea);
 }
 
 void HooksmithPanel::setChoice (const juce::String& id, int index)
@@ -929,8 +970,27 @@ void HooksmithPanel::resized()
         laneAreas[l] = { x0 + l * (lw + 10), 570, lw, 214 };
     arpArea    = { x0, 794, 620, 92 };
     exportArea = { x0 + 632, 794, w - 632, 92 };
-    colorArea  = { x0, 896, w - 372, 90 };
-    tapeArea   = { x0 + w - 360, 896, 360, 90 };
+    partArea   = { x0, 896, w, 90 };
+    colorArea  = { x0, 996, w - 372, 90 };
+    tapeArea   = { x0 + w - 360, 996, 360, 90 };
+
+    // PART TONE + MELODY
+    {
+        auto tabs = juce::Rectangle<int> (partArea.getX() + 216, partArea.getY() + 6, 4 * 92, 24);
+        for (auto* t : partTabs) { t->setBounds (tabs.removeFromLeft (88)); tabs.removeFromLeft (4); }
+        auto c = partArea.reduced (14, 0).withTrimmedTop (36).withHeight (48);
+        auto left = c.removeFromLeft (576);
+        const int kw = left.getWidth() / 4;
+        for (auto* k : { &pStrum, &pHp, &pLp, &pGain })
+            k->setBounds (left.removeFromLeft (kw).withSizeKeepingCentre (42, 42).translated (0, -4));
+        c.removeFromLeft (20);
+        melGroup = c;
+        auto m = c.withTrimmedTop (2);
+        auto colA = m.removeFromLeft (m.getWidth() / 2).reduced (8, 0);
+        auto colB = m.reduced (8, 0);
+        melHarm.setBounds (colA.removeFromBottom (28));
+        melFlavor.setBounds (colB.removeFromBottom (28));
+    }
 
     // COLOR
     {
@@ -1108,7 +1168,7 @@ void HooksmithPanel::renderBackground()
     }
 
     for (auto r : { songArea, screenArea, progArea, grooveArea, laneAreas[0], laneAreas[1], laneAreas[2], laneAreas[3], arpArea, exportArea,
-                    colorArea, tapeArea })
+                    colorArea, tapeArea, partArea })
         recess (g, r.toFloat(), 8.0f);
 
     const auto title = [&] (juce::Rectangle<int> area, const char* t, const char* sub)
@@ -1160,6 +1220,17 @@ void HooksmithPanel::renderBackground()
     title (exportArea, "EXPORT", "drag into your DAW");
 
     title (colorArea, "COLOR", "retro tape colour + classic samplers, per part");
+    title (partArea, "PART TONE", "per part");
+    knobLabel (pStrum, "STRUM"); knobLabel (pHp, "HIGH PASS"); knobLabel (pLp, "LOW PASS"); knobLabel (pGain, "GAIN  (BUS COMP)");
+    {
+        // MELODY group: divider + captions
+        g.setColour (juce::Colours::black.withAlpha (0.55f));
+        g.fillRect ((float) melGroup.getX() - 10.0f, (float) melGroup.getY() - 6.0f, 1.5f, (float) melGroup.getHeight() + 10.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.06f));
+        g.fillRect ((float) melGroup.getX() - 8.5f, (float) melGroup.getY() - 6.0f, 1.0f, (float) melGroup.getHeight() + 10.0f);
+        caption (melHarm, "MELODY HARMONY", -16.0f);
+        caption (melFlavor, "MELODY FLAVOR", -16.0f);
+    }
     knobLabel (drive, "DRIVE"); knobLabel (wobble, "WOBBLE"); knobLabel (noise, "NOISE");
     knobLabel (crush, "CRUSH"); knobLabel (tone, "TONE"); knobLabel (colMix, "MIX");
     {

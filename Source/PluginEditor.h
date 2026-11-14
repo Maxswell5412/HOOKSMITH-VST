@@ -112,7 +112,7 @@ private:
 };
 } // namespace hsui
 
-// The whole interface at its design size (1180 x 1000). The editor scales it to fit the screen.
+// The whole interface at its design size (1180 x 1096). The editor scales it to fit the screen.
 class HooksmithPanel : public juce::Component,
                        public juce::DragAndDropContainer,
                        public juce::FileDragAndDropTarget,
@@ -123,7 +123,7 @@ public:
     void tick() { timerCallback(); }   // one UI update (video renderer)
     explicit HooksmithPanel (HooksmithProcessor&);
     ~HooksmithPanel() override;
-    static constexpr int designW = 1180, designH = 1000;
+    static constexpr int designW = 1180, designH = 1096;
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -145,7 +145,16 @@ private:
     juce::Image background;
 
     juce::Rectangle<int> headerArea, songArea, screenArea, progArea, grooveArea, laneAreas[hs::kNumLanes], arpArea, exportArea, lcdArea,
-                         colorArea, tapeArea;
+                         colorArea, tapeArea, partArea, melGroup;
+
+    // PART TONE (one per part, the panel shows the selected part) + MELODY harmony / flavor
+    void selectPartLane (int lane);
+    int partLane = 2;
+    juce::OwnedArray<ui::LedButton> partTabs;
+    ui::Knob pStrum, pHp, pLp, pGain;
+    juce::ComboBox melHarm, melFlavor;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> pStrumA, pHpA, pLpA, pGainA;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> melHarmA, melFlavorA;
 
     // COLOR (one per part, the panel shows the selected part)
     void selectColorLane (int lane);

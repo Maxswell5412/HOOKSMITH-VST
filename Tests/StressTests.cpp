@@ -97,7 +97,7 @@ int main (int argc, char** argv)
         std::printf ("clicks ok\n");
         if (const char* shot = std::getenv ("HS_SHOT"))
         {
-            ed->setSize (1180, 1000);
+            ed->setSize (HooksmithPanel::designW, HooksmithPanel::designH);
             if (auto* hp = dynamic_cast<HooksmithPanel*> (ed->getChildComponent (0))) hp->tick();
             auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, 1.0f);
             juce::FileOutputStream os { juce::File (shot) };

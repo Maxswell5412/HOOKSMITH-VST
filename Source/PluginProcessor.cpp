@@ -134,6 +134,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout HooksmithProcessor::createLa
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { "tapeLoop", 1 }, "Tape Stop at Loop End", false));
     flt ("tapeTime",  "Tape Stop Time", 0.1f, 3.0f, 0.8f);
     flt ("tapeStart", "Tape Start Time", 0.05f, 2.0f, 0.25f);
+    layout.add (std::make_unique<AudioParameterChoice> (ParameterID { "melHarm", 1 }, "Melody Harmony", toStringArray (harmonyNames()), 0));
+    layout.add (std::make_unique<AudioParameterChoice> (ParameterID { "melFlavor", 1 }, "Melody Flavor", toStringArray (melodyFlavorNames()), 0));
 
     for (int l = 0; l < kNumLanes; ++l)
     {
@@ -171,6 +173,16 @@ juce::AudioProcessorValueTreeState::ParameterLayout HooksmithProcessor::createLa
                                                                AudioParameterFloatAttributes().withStringFromValueFunction (
                                                                    [] (float v, int) { return String (roundToInt (v * 100.0f)) + "%"; })));
 
+        // PART TONE for this part
+        layout.add (std::make_unique<AudioParameterFloat> (ParameterID { laneParam (l, "pstrum"), 1 }, n + "Strum", NormalisableRange<float> (0.0f, 1.0f), 0.0f));
+        layout.add (std::make_unique<AudioParameterFloat> (ParameterID { laneParam (l, "hp"), 1 },     n + "High Pass", NormalisableRange<float> (0.0f, 1.0f), 0.0f,
+                                                           AudioParameterFloatAttributes().withStringFromValueFunction (
+                                                               [] (float v, int) { return v < 0.003f ? String ("Off") : String (roundToInt (hs::PartTone::hpHz (v))) + " Hz"; })));
+        layout.add (std::make_unique<AudioParameterFloat> (ParameterID { laneParam (l, "lp"), 1 },     n + "Low Pass", NormalisableRange<float> (0.0f, 1.0f), 1.0f,
+                                                           AudioParameterFloatAttributes().withStringFromValueFunction (
+                                                               [] (float v, int) { return v > 0.997f ? String ("Off") : String (roundToInt (hs::PartTone::lpHz (v))) + " Hz"; })));
+        layout.add (std::make_unique<AudioParameterFloat> (ParameterID { laneParam (l, "gain"), 1 },   n + "Gain (Bus Comp)", NormalisableRange<float> (0.0f, 1.0f), 0.5f));
+
         if (l < kArpLanes)   // every melodic part has its own arpeggiator
         {
             static const int defRate[] = { 4, 4, 3 };
@@ -194,6 +206,7 @@ HooksmithProcessor::HooksmithProcessor()
     auto raw = [this] (const juce::String& id) { return apvts.getRawParameterValue (id); };
     pGenre = raw ("genre"); pSection = raw ("section"); pBars = raw ("bars"); pKey = raw ("key");
     pSpice = raw ("spice");
+    pMelHarm = raw ("melHarm"); pMelFlavor = raw ("melFlavor");
     pScale = raw ("scale"); pProg = raw ("prog"); pComplexity = raw ("complexity"); pDensity = raw ("density");
     pGroove = raw ("groove"); pHumanize = raw ("humanize"); pMode = raw ("mode"); pPlay = raw ("play");
     pBpm = raw ("bpm"); pMidiOut = raw ("midiOut"); pSketchVol = raw ("sketchVol");
@@ -225,6 +238,10 @@ HooksmithProcessor::HooksmithProcessor()
         pFlavor[(size_t) l]  = raw (laneParam (l, "flavor"));
         pExag[(size_t) l]    = raw (laneParam (l, "exag"));
         pFunk[(size_t) l]    = raw (laneParam (l, "funk"));
+        pPartStrum[(size_t) l] = raw (laneParam (l, "pstrum"));
+        pPartHp[(size_t) l]    = raw (laneParam (l, "hp"));
+        pPartLp[(size_t) l]    = raw (laneParam (l, "lp"));
+        pPartGain[(size_t) l]  = raw (laneParam (l, "gain"));
     }
     pTapeStop = raw ("tapeStop"); pTapeLoop = raw ("tapeLoop"); pTapeTime = raw ("tapeTime"); pTapeStart = raw ("tapeStart");
 
@@ -280,6 +297,8 @@ hs::Settings HooksmithProcessor::currentSettings() const
     s.dynamics = pDynamics->load();
     s.strum = pStrum->load();
     s.harmonySeed = seeds[0]; s.melodySeed = seeds[1]; s.bassSeed = seeds[2]; s.drumSeed = seeds[3];
+    s.melodyHarmony = (int) pMelHarm->load();
+    s.melodyFlavor = (int) pMelFlavor->load();
     for (int l = 0; l < kNumLanes; ++l)
     {
         s.variant[(size_t) l] = takes[(size_t) l] % 3;
@@ -289,6 +308,7 @@ hs::Settings HooksmithProcessor::currentSettings() const
         s.machineFlavor[(size_t) l] = std::round (pFlavor[(size_t) l]->load() * 50.0f) / 50.0f;   // 2% steps: no rebuild storm while turning
         s.machineExaggerate[(size_t) l] = std::round (pExag[(size_t) l]->load() * 50.0f) / 50.0f;
         s.machineFunk[(size_t) l] = std::round (pFunk[(size_t) l]->load() * 50.0f) / 50.0f;
+        s.laneStrum[(size_t) l] = std::round (pPartStrum[(size_t) l]->load() * 50.0f) / 50.0f;
     }
     return s;
 }
@@ -306,7 +326,8 @@ bool HooksmithProcessor::settingsChanged (const Settings& s) const
         || s.bassSeed != o.bassSeed || s.drumSeed != o.drumSeed || s.imported != o.imported
         || s.variant != o.variant || s.noteLength != o.noteLength
         || s.machine != o.machine || s.machineFlavor != o.machineFlavor
-        || s.machineExaggerate != o.machineExaggerate || s.machineFunk != o.machineFunk;
+        || s.machineExaggerate != o.machineExaggerate || s.machineFunk != o.machineFunk
+        || s.laneStrum != o.laneStrum || s.melodyHarmony != o.melodyHarmony || s.melodyFlavor != o.melodyFlavor;
 }
 
 void HooksmithProcessor::timerCallback()
@@ -727,6 +748,7 @@ void HooksmithProcessor::prepareToPlay (double sampleRate, int)
     sketch[3].prepare (sampleRate, SketchSynth::Drums);
     sketchBuf.setSize (2, kChunk);
     for (int l = 0; l < kNumLanes; ++l) color[(size_t) l].prepare (sampleRate, (juce::uint32) (l * 7919 + 17));
+    for (auto& pt : partTone) pt.prepare (sampleRate);
     tape.prepare (sampleRate);
 
     for (int l = 0; l < kNumLanes; ++l)
@@ -1149,6 +1171,11 @@ void HooksmithProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
                 cs.exaggerate = pExag[(size_t) l]->load();
                 cs.funk       = pFunk[(size_t) l]->load();
                 color[(size_t) l].process (bl, br, len, cs);
+                {
+                    PartToneSettings pts;
+                    pts.hp = pPartHp[(size_t) l]->load(); pts.lp = pPartLp[(size_t) l]->load(); pts.gain = pPartGain[(size_t) l]->load();
+                    partTone[(size_t) l].process (bl, br, len, pts);
+                }
 
                 juce::FloatVectorOperations::addWithMultiply (outL + start, bl, vol, len);
                 if (outR != nullptr) juce::FloatVectorOperations::addWithMultiply (outR + start, br, vol, len);

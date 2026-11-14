@@ -6,6 +6,7 @@
 #include "Arpeggiator.h"
 #include "SketchSynth.h"
 #include "ColorFX.h"
+#include "PartTone.h"
 
 // -----------------------------------------------------------------------------
 // HOOKSMITH — song idea generator with the PROGRESSOR chord engine.
@@ -162,7 +163,9 @@ private:
                        *pGroove, *pHumanize, *pMode, *pPlay, *pBpm, *pMidiOut, *pSketchVol,
                        *pFeel, *pFeelAmt, *pPocket, *pDynamics, *pStrum;
     std::array<std::atomic<float>*, kArpLanes> pArpOn {}, pArpRate {}, pArpMode {}, pArpOct {}, pArpGate {};
-    std::array<std::atomic<float>*, hs::kNumLanes> pLaneOn {}, pLaneSound {}, pLaneOct {}, pLaneVol {}, pLaneLen {}, pLanePatch {}, pMachine {}, pFlavor {}, pExag {}, pFunk {};
+    std::array<std::atomic<float>*, hs::kNumLanes> pLaneOn {}, pLaneSound {}, pLaneOct {}, pLaneVol {}, pLaneLen {}, pLanePatch {}, pMachine {}, pFlavor {}, pExag {}, pFunk {},
+                                                        pPartStrum {}, pPartHp {}, pPartLp {}, pPartGain {};
+    std::atomic<float>* pMelHarm = nullptr; std::atomic<float>* pMelFlavor = nullptr;
     std::array<std::atomic<float>*, hs::kNumLanes> pColOn {}, pDrive {}, pWobble {}, pNoise {}, pCrush {}, pTone {}, pColMix {};
     std::atomic<float> *pTapeStop = nullptr, *pTapeLoop = nullptr, *pTapeTime = nullptr, *pTapeStart = nullptr;
 
@@ -218,6 +221,7 @@ private:
     std::array<hs::Arpeggiator, kArpLanes> arps;
     std::array<hs::SketchSynth, hs::kNumLanes> sketch;
     std::array<hs::ColorFX, hs::kNumLanes> color;
+    std::array<hs::PartTone, hs::kNumLanes> partTone;
     hs::TapeStop tape;
     juce::AudioBuffer<float> sketchBuf;
 
