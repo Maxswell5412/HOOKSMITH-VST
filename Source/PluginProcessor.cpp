@@ -437,10 +437,19 @@ void HooksmithProcessor::nextTake (const std::array<bool, kNumLanes>& lanes)
     for (int l = 0; l < kNumLanes; ++l)
         if (lanes[(size_t) l])
         {
-            takes[(size_t) l] = (takes[(size_t) l] + 1) % 3;
+            // chords: every press is a brand-new progression (a "close take" of chords sounded like the same thing)
+            takes[(size_t) l] = l == ChordsLane ? 0 : (takes[(size_t) l] + 1) % 3;
             fresh[(size_t) l] = takes[(size_t) l] == 0;
             anyNew = anyNew || fresh[(size_t) l];
         }
+    // the chords' own GENERATE always writes new chords: leave a chosen progression / imported file for the PROGRESSOR
+    bool onlyChords = lanes[ChordsLane];
+    for (int l = 1; l < kNumLanes; ++l) onlyChords = onlyChords && ! lanes[(size_t) l];
+    if (onlyChords)
+    {
+        activeImport = -1;
+        if (auto* prm = apvts.getParameter ("prog"); prm != nullptr && pProg->load() > 0.5f) prm->setValueNotifyingHost (0.0f);
+    }
 
     if (anyNew)
     {

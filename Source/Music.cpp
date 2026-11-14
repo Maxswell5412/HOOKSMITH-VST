@@ -761,7 +761,9 @@ void buildHarmony (Ctx& c)
             else span.bassPc = -1;
         }
         const bool wide = s.spice >= 0.3f && s.genre != 3;   // classical keeps close voicings
-        span.notes = voiceChord (span.rootPc, intervals (sc.q), s.genre, prev, 62, wide, span.bassPc);
+        // each new progression sits in its own register (low and dark ... high and bright), then voice-leads from there
+        const int centre = 57 + (int) (mix64 ((uint64_t) s.harmonySeed * 2654435761ull + 17) % 11);   // 57..67
+        span.notes = voiceChord (span.rootPc, intervals (sc.q), s.genre, prev, centre, wide, span.bassPc);
         prev = span.notes;
 
         std::vector<int> pcs;

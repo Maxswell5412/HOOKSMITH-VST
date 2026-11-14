@@ -350,6 +350,18 @@ int main()
             CHECK (c2 != c1, "new chords differ");
             p.recallSlot (hs::ChordsLane, 0);
             CHECK (chordNames() == c1 && p.activeSlot (hs::ChordsLane) == 0, "chord slot 1 brings the progression back (%s)", chordNames().c_str());
+            // chords GENERATE: every press = a new progression (and it moves register)
+            std::set<std::string> progs; std::set<int> lows;
+            for (int i = 0; i < 6; ++i)
+            {
+                p.rerollLane (hs::ChordsLane);
+                progs.insert (chordNames());
+                const auto& ch = p.getPattern().chords;
+                if (! ch.empty() && ! ch[0].notes.empty()) lows.insert (ch[0].notes.back());
+                std::printf ("  chords generate %d: %s\n", i + 1, chordNames().c_str());
+            }
+            CHECK (progs.size() >= 5, "6 chord GENERATEs give new progressions (%zu different)", progs.size());
+            CHECK (lows.size() >= 3, "and they move around the keyboard (%zu top notes)", lows.size());
         }
         juce::MemoryBlock mb; p.getStateInformation (mb);
         HooksmithProcessor q; q.setPlayConfigDetails (0, 2, 48000.0, 512); q.prepareToPlay (48000.0, 512);
