@@ -46,7 +46,9 @@ const std::vector<std::string>& scaleNames();     // index 0 = Auto
 const std::vector<std::string>& keyNames();
 const std::vector<std::string>& laneNames();
 const std::vector<std::string>& feelNames();      // GROOVE module feels, index 0 = genre default
-const std::vector<std::string>& harmonyNames();   // melody HARMONY: Off, 3rds Up, 3rds Down, 6ths Down, Octave Up ...
+const std::vector<std::string>& harmonyNames();
+const std::vector<std::string>& chordChangesNames();
+const std::vector<std::string>& voicingStyleNames();   // melody HARMONY: Off, 3rds Up, 3rds Down, 6ths Down, Octave Up ...
 const std::vector<std::string>& melodyFlavorNames();   // melody FLAVOR: Auto, Catchy, Soulful, Rap Flow ...
 int genreDefaultBpm (int genre);
 
@@ -156,7 +158,11 @@ struct Settings
     std::array<float, kNumLanes> machineFunk { 0, 0, 0, 0 };         // random push/pull and accents
     // PART TONE: STRUM per part (chords roll like a guitar, single notes lay back), 0..1
     std::array<float, kNumLanes> laneStrum { 0, 0, 0, 0 };
-    int melodyHarmony = 0;       // HARMONY: index into harmonyNames() (0 = off)
+    int melodyHarmony = 0;       // HARMONY: index into harmonyNames() (0 = off, 10 = Smart, the plugin's default)
+    float bassGlide = 0.0f;      // 808 GLIDE: bass notes slide into each other (0..1)
+    float bassStutter = 0.0f;    // 808 STUTTER: rolls (1/16, 1/16T, 1/32) on bass notes (0..1)
+    int chordChanges = 0;        // CHANGES: 0 Auto, 1 Slow (every 2 bars), 2 Every Bar, 3 Twice a Bar, 4 Pushes
+    int voicingStyle = 0;        // VOICING: 0 Auto, 1 Close, 2 Wide (melodic), 3 Low & Dark, 4 High & Bright
     int melodyFlavor = 0;        // melody FLAVOR: index into melodyFlavorNames() (0 = the genre's own)
     std::shared_ptr<const ImportedProgression> imported;   // set = use these chords instead of the PROGRESSOR
 };

@@ -40,9 +40,11 @@ struct PlayData
     int padBase = 60;
     std::array<std::array<int, 8>, 128> keyNotes {};
     std::array<int, 128> keyCount {};
+    // PROG KEYS: the progression's own chords (as voiced), white keys from C3 = chord 1, 2, 3...
+    std::vector<std::vector<int>> progChords;
 };
 
-enum PlayMode { SyncMode = 0, TriggerMode, ChordKeysMode };
+enum PlayMode { SyncMode = 0, TriggerMode, ChordKeysMode, ProgKeysMode };
 enum LaneSound { SoundAuto = 0, SoundBuiltIn, SoundMidiOnly };
 } // namespace hs
 
@@ -154,6 +156,12 @@ private:
     void killLane (int lane, int pos);
     void chordKeyOn (int note, int vel, int pos);
     void chordKeyOff (int note, int pos);
+    void progKeyOn (int note, int vel, int pos);
+public:
+    static int progChordForKey (int note, int numChords);   // -1 = black key
+    int heldProgChord() const { return displayHeldProg.load(); }
+private:
+    std::atomic<int> displayHeldProg { -1 };
     void scheduleLane (int lane, const hs::PlayData& d, double clock0, double clock1,
                        int len, double beatsPerSample, int transpose);
     void emitNote (int lane, bool on, int pitch, int vel, int pos);
@@ -164,8 +172,10 @@ private:
                        *pFeel, *pFeelAmt, *pPocket, *pDynamics, *pStrum;
     std::array<std::atomic<float>*, kArpLanes> pArpOn {}, pArpRate {}, pArpMode {}, pArpOct {}, pArpGate {};
     std::array<std::atomic<float>*, hs::kNumLanes> pLaneOn {}, pLaneSound {}, pLaneOct {}, pLaneVol {}, pLaneLen {}, pLanePatch {}, pMachine {}, pFlavor {}, pExag {}, pFunk {},
-                                                        pPartStrum {}, pPartHp {}, pPartLp {}, pPartGain {};
+                                                        pPartStrum {}, pPartHp {}, pPartLp {}, pPartGain {}, pPartRes {};
     std::atomic<float>* pMelHarm = nullptr; std::atomic<float>* pMelFlavor = nullptr;
+    std::atomic<float>* pChanges = nullptr; std::atomic<float>* pVoicing = nullptr;
+    std::atomic<float> *p808Drive = nullptr, *pWobRate = nullptr, *pWobDepth = nullptr, *pStutter = nullptr, *pGlide = nullptr;
     std::array<std::atomic<float>*, hs::kNumLanes> pColOn {}, pDrive {}, pWobble {}, pNoise {}, pCrush {}, pTone {}, pColMix {};
     std::atomic<float> *pTapeStop = nullptr, *pTapeLoop = nullptr, *pTapeTime = nullptr, *pTapeStart = nullptr;
 

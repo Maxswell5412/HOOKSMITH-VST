@@ -121,6 +121,7 @@ class HooksmithPanel : public juce::Component,
 {
 public:
     void tick() { timerCallback(); }   // one UI update (video renderer)
+    void mouseDown (const juce::MouseEvent&) override;   // right-click DICE = more dice
     explicit HooksmithPanel (HooksmithProcessor&);
     ~HooksmithPanel() override;
     static constexpr int designW = 1180, designH = 1096;
@@ -151,9 +152,14 @@ private:
     void selectPartLane (int lane);
     int partLane = 2;
     juce::OwnedArray<ui::LedButton> partTabs;
-    ui::Knob pStrum, pHp, pLp, pGain;
+    ui::Knob pStrum, pHp, pLp, pRes, pGain;
     juce::ComboBox melHarm, melFlavor;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> pStrumA, pHpA, pLpA, pGainA;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> pStrumA, pHpA, pLpA, pResA, pGainA;
+    // 808 (bass tab)
+    juce::ComboBox wobRate;
+    ui::Knob wobDepth, stutterK, glideK, driveK;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> wobRateA;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> wobDepthA, stutterA, glideA, drive808A;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> melHarmA, melFlavorA;
 
     // COLOR (one per part, the panel shows the selected part)
@@ -190,6 +196,13 @@ private:
     // Screen + PROGRESSOR
     hsui::RollScreen screen;
     juce::ComboBox progression;
+    ui::LedButton progPrev { "<", ui::Col::amber, false }, progNext { ">", ui::Col::amber, false };
+    ui::LedButton diceButton { "Dice", ui::Col::violet, false };
+    juce::ComboBox changesBox, voicingBox;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> changesA, voicingA;
+    juce::Rectangle<int> progReadout;
+    void stepProgression (int dir);
+    void rollDice (int what);   // 0 progression, 1 key, 2 key + scale, 3 surprise me
     ui::LedButton importButton { "Import MIDI", ui::Col::amber, false };
     ui::LedButton captureButton { "Capture", ui::Col::green };
     std::unique_ptr<juce::FileChooser> importChooser;

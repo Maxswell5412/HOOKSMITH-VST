@@ -47,7 +47,19 @@ const std::vector<std::string>& keyNames()
 const std::vector<std::string>& harmonyNames()
 {
     static const std::vector<std::string> n { "Off", "3rds Up", "3rds Down", "6ths Down", "Octave Up", "Octave Down",
-                                              "5ths Up", "Power (5th + 8ve)", "Triad Stack", "Chord Tones" };
+                                              "5ths Up", "Power (5th + 8ve)", "Triad Stack", "Chord Tones", "Smart" };
+    return n;
+}
+
+const std::vector<std::string>& chordChangesNames()
+{
+    static const std::vector<std::string> n { "Auto", "Slow (2 bars)", "Every Bar", "Twice a Bar", "Pushes" };
+    return n;
+}
+
+const std::vector<std::string>& voicingStyleNames()
+{
+    static const std::vector<std::string> n { "Auto", "Close", "Wide (melodic)", "Low & Dark", "High & Bright" };
     return n;
 }
 
@@ -640,6 +652,9 @@ void buildHarmony (Ctx& c)
     double total = 0; for (auto& e : g.chordsPerBar) total += e.second;
     double pick = rr.uni() * total, cpb = g.chordsPerBar.front().first;
     for (auto& e : g.chordsPerBar) { if (pick < e.second) { cpb = e.first; break; } pick -= e.second; }
+    if (s.chordChanges == 1) cpb = 0.5;
+    else if (s.chordChanges == 2 || s.chordChanges == 4) cpb = 1.0;
+    else if (s.chordChanges == 3) cpb = 2.0;
     cpb = std::max (cpb, (double) n / (double) s.bars);
     int slots = std::max (n, (int) std::lround (s.bars * cpb));
     while (slots % n != 0) ++slots;
@@ -754,6 +769,14 @@ void buildHarmony (Ctx& c)
         timed.swap (out);
     }
 
+    // CHANGES = Pushes: every change lands an eighth early, the classic anticipation
+    if (s.chordChanges == 4)
+        for (size_t i = 1; i < timed.size(); ++i)
+            if (timed[i - 1].len >= 1.0 && ! timed[i].spice)
+            {
+                timed[i - 1].len -= 0.5; timed[i].start -= 0.5; timed[i].len += 0.5; timed[i].spice = true;
+            }
+
     // Voice everything with smooth voice leading
     std::vector<int> prev;
     for (const auto& tc : timed)
@@ -773,9 +796,13 @@ void buildHarmony (Ctx& c)
                 span.name += "/" + noteName (span.bassPc, keyPrefersFlats (c.keyPc, c.minor) || sc.bassRel == 3 || sc.bassRel == 8 || sc.bassRel == 10);
             else span.bassPc = -1;
         }
-        const bool wide = s.spice >= 0.3f && s.genre != 3;   // classical keeps close voicings
+        bool wide = s.spice >= 0.3f && s.genre != 3;   // classical keeps close voicings
+        if (s.voicingStyle == 1) wide = false;
+        if (s.voicingStyle == 2) wide = true;
         // each new progression sits in its own register (low and dark ... high and bright), then voice-leads from there
-        const int centre = 57 + (int) (mix64 ((uint64_t) s.harmonySeed * 2654435761ull + 17) % 11);   // 57..67
+        int centre = 57 + (int) (mix64 ((uint64_t) s.harmonySeed * 2654435761ull + 17) % 11);   // 57..67
+        if (s.voicingStyle == 3) centre = 52;
+        if (s.voicingStyle == 4) centre = 70;
         span.notes = voiceChord (span.rootPc, intervals (sc.q), s.genre, prev, centre, wide, span.bassPc);
         prev = span.notes;
 
@@ -936,22 +963,34 @@ static float runChance (int genre)
 static int cellNotes (const char* c) { int n = 0; for (int i = 0; i < 16; ++i) n += c[i] == 'x'; return n; }
 
 // melody FLAVOR: 1 Catchy, 2 Soulful, 3 Rap Flow, 4 Dreamy, 5 Bluesy, 6 Pentatonic, 7 Latin, 8 Jazz
+// Auto (0): every new melody picks a character that suits the genre, so GENERATE keeps surprising you
+static int effFlavor (const Settings& s)
+{
+    if (s.melodyFlavor != 0) return std::clamp (s.melodyFlavor, 0, 8);
+    static const std::vector<std::vector<int>> byGenre = {
+        { 0, 1, 4, 2 }, { 0, 1, 7 }, { 0, 1, 6 }, { 0, 4 }, { 0, 4 }, { 0, 1, 7 }, { 0, 1, 4 }, { 0, 4, 1 },
+        { 0, 3, 8, 5 }, { 0, 3, 1, 6 }, { 0, 3, 6 }, { 0, 2, 8, 4 }, { 0, 2, 8, 5 }, { 0, 8, 4, 6 },
+        { 0, 2, 5 }, { 0, 6, 7, 1 }, { 0, 7, 1 }, { 0, 6, 5, 1 } };
+    const auto& c = byGenre[(size_t) std::clamp (s.genre, 0, (int) byGenre.size() - 1)];
+    return c[(size_t) (mix64 ((uint64_t) s.melodySeed * 0x9E3779B97F4A7C15ull + 31) % c.size())];
+}
+
 static float pentaFor (const Settings& s)
 {
     static const float f[] = { -1, 0.7f, 0.85f, 0.6f, 0.6f, 0.95f, 1.0f, 0.5f, 0.1f };
-    const float v = f[std::clamp (s.melodyFlavor, 0, 8)];
+    const float v = f[effFlavor (s)];
     return v < 0 ? pentaBias (s.genre) : v;
 }
 static float runFor (const Settings& s)
 {
     static const float f[] = { -1, 0.05f, 0.8f, 0.0f, 0.25f, 0.45f, -1, 0.1f, 0.35f };
-    const float v = f[std::clamp (s.melodyFlavor, 0, 8)];
+    const float v = f[effFlavor (s)];
     return v < 0 ? runChance (s.genre) : v;
 }
 static Melody feelFor (const Genre& g, const Settings& s)
 {
     Melody m = g.melody;
-    switch (s.melodyFlavor)
+    switch (effFlavor (s))
     {
         case 1: m.repeat = std::min (0.9f, m.repeat + 0.35f); m.leap *= 0.6f; break;                                   // catchy: repeats, small steps
         case 2: m.syncopation = std::max (m.syncopation, 0.55f); m.legato = std::min (0.9f, m.legato + 0.2f); break;  // soulful
@@ -992,7 +1031,7 @@ static const char* pickCell (Ctx& c, Rng& r, bool ending)
 {
     if (ending) return kEndCells[r.range (0, (int) (sizeof (kEndCells) / sizeof (kEndCells[0])) - 1)];
     const Melody feel = feelFor (c.g, c.s);
-    const auto fams = preferredFamilies (feel, c.s.genre, c.s.melodyFlavor);
+    const auto fams = preferredFamilies (feel, c.s.genre, effFlavor (c.s));
     const double want = std::clamp (feel.notesPerBar * (0.55 + c.s.density * 0.9) * (0.7 + 0.4 * c.energy), 2.0, 9.0);
     std::vector<double> w; std::vector<const char*> pool;
     for (auto& cell : kCells)
@@ -1107,6 +1146,68 @@ std::vector<MotifNote> varyMotif (const std::vector<MotifNote>& a, Rng& r)
     return v;
 }
 
+// Motif development: the tricks songwriters use so 8 bars feel like a story, not a loop
+//   S sequence (the idea again, a step or two higher / lower)   I inversion (the contour upside down)
+//   F fragment (the first half, said twice)                      P peak (the climax: reaches its highest note and holds)
+//   X displaced (the same idea, an 8th later)
+std::vector<MotifNote> developMotif (const std::vector<MotifNote>& a, char how, Rng& r, double phraseLen)
+{
+    auto v = a;
+    if (v.empty()) return v;
+    int lo = 99, hi = -99;
+    for (auto& n : v) { lo = std::min (lo, n.off); hi = std::max (hi, n.off); }
+    switch (how)
+    {
+        case 'S':
+        {
+            const int k = r.chance (0.5) ? 2 : (r.chance (0.5) ? 1 : -2);
+            for (auto& n : v) n.off += k;
+            break;
+        }
+        case 'I':
+        {
+            const int pivot = v.front().off;
+            for (auto& n : v) n.off = std::clamp (pivot - (n.off - pivot), pivot - 6, pivot + 6);
+            break;
+        }
+        case 'F':
+        {
+            std::vector<MotifNote> half;
+            for (auto& n : v) if (n.t < phraseLen * 0.5 - 1.0e-6) half.push_back (n);
+            if (half.size() < 2) return developMotif (a, 'S', r, phraseLen);
+            v = half;
+            const int lift = r.chance (0.5) ? 1 : 0;
+            for (auto n : half) { n.t += phraseLen * 0.5; n.off += lift; v.push_back (n); }
+            v.back().len = std::max (v.back().len, std::min (1.0, phraseLen - v.back().t));
+            break;
+        }
+        case 'P':
+        {
+            // the climax: the highest note of the second half goes up to a new peak, lands strong and rings
+            size_t best = v.size() - 1;
+            int bestOff = -99;
+            for (size_t i = 0; i < v.size(); ++i)
+                if (v[i].t >= phraseLen * 0.25 && v[i].off >= bestOff && ! v[i].run) { bestOff = v[i].off; best = i; }
+            v[best].off = hi + (r.chance (0.6) ? 2 : 3);
+            v[best].strong = true;
+            const double next = best + 1 < v.size() ? v[best + 1].t : phraseLen;
+            v[best].len = std::max (v[best].len, std::min (1.5, next - v[best].t));
+            for (size_t i = best + 1; i < v.size(); ++i) v[i].off = std::min (v[i].off, v[best].off - 1);   // and comes down after it
+            v.back().len = std::max (v.back().len, std::min (1.0, phraseLen - v.back().t));
+            break;
+        }
+        case 'X':
+        {
+            std::vector<MotifNote> w;
+            for (auto n : v) { n.t += 0.5; n.strong = std::abs (n.t - std::round (n.t)) < 1.0e-6; if (n.t < phraseLen - 0.124) { n.len = std::min (n.len, phraseLen - n.t); w.push_back (n); } }
+            if (w.size() >= 2) v = w;
+            break;
+        }
+        default: break;
+    }
+    return v;
+}
+
 void buildMelody (Ctx& c)
 {
     auto& out = c.p->lanes[MelodyLane];
@@ -1137,22 +1238,39 @@ void buildMelody (Ctx& c)
             auto base = motif ((char) std::toupper ((unsigned char) letter));
             return motifs[letter] = varyMotif (base, r);
         }
+        if (letter == 'S' || letter == 'I' || letter == 'F' || letter == 'P' || letter == 'X')
+            return motifs[letter] = developMotif (motif ('A'), letter, r, letterBars * 4.0);
+        if (letter == 'C')   // the closing phrase is new material that climbs to the peak
+            return motifs[letter] = developMotif (makeMotif (c, r, letterBars), 'P', r, letterBars * 4.0);
         return motifs[letter] = makeMotif (c, r, letterBars);
     };
+
+    // the shape of the story: a different recipe each GENERATE
+    Rng fr (seedFor (c.s.melodySeed, 91, (uint64_t) group, (uint64_t) c.s.genre));
+    static const char* chorusRecipes[] = { "AaAC", "ASaP", "AaIP", "AFaC", "AaSP", "AXaC" };
+    static const char* verseRecipes[]  = { "AaBb", "ASBb", "AaXb", "AIBb", "AFBb" };
+    static const char* pairRecipes[]   = { "Aa", "AS", "AP", "AI" };
+    const char* chorusForm = chorusRecipes[fr.range (0, 5)];
+    const char* verseForm  = verseRecipes[fr.range (0, 4)];
+    const char* pairForm   = pairRecipes[fr.range (0, 3)];
 
     std::vector<char> form;
     for (int i = 0; i < L; ++i)
     {
         if (L == 1) { form.push_back ('A'); continue; }
-        if (L == 2) { form.push_back (i == 0 ? 'A' : 'a'); continue; }          // call, answer
+        if (L == 2) { form.push_back (pairForm[i]); continue; }                  // call, answer (or a sequence / a peak)
         const int pos = i % 4;
         const bool lastGroup = (i / 4) == (L - 1) / 4;
         if (section == Bridge)
-            form.push_back (pos == 0 ? 'D' : pos == 1 ? 'd' : pos == 2 ? 'E' : 'F');
+            form.push_back (pos == 0 ? 'D' : pos == 1 ? 'd' : pos == 2 ? 'E' : 'G');
         else if (section == Verse)
-            form.push_back (pos == 0 ? 'A' : pos == 1 ? 'a' : pos == 2 ? 'B' : 'b');
+            form.push_back (verseForm[pos]);
         else
-            form.push_back (pos == 0 ? 'A' : pos == 1 ? 'a' : pos == 2 ? 'A' : (lastGroup ? 'C' : 'a'));
+        {
+            char ch = chorusForm[pos];
+            if (pos == 3 && ! lastGroup) ch = 'a';     // the climax only at the very end
+            form.push_back (ch);
+        }
     }
     // 'd' is a variation of D
     if (section == Bridge)
@@ -1291,10 +1409,11 @@ void buildMelody (Ctx& c)
     }
 
     // FLAVOR ornaments: blue-note slides (Bluesy), chromatic approach notes (Jazz), anticipations (Latin)
-    if (! out.empty() && (c.s.melodyFlavor == 5 || c.s.melodyFlavor == 7 || c.s.melodyFlavor == 8))
+    const int fx = effFlavor (c.s);
+    if (! out.empty() && (fx == 5 || fx == 7 || fx == 8))
     {
         std::sort (out.begin(), out.end(), [] (const NoteEv& a, const NoteEv& b) { return a.start < b.start; });
-        Rng fr (seedFor (c.s.melodySeed, 97, (uint64_t) c.s.melodyFlavor, (uint64_t) group));
+        Rng fr (seedFor (c.s.melodySeed, 97, (uint64_t) fx, (uint64_t) group));
         std::vector<NoteEv> add;
         for (size_t i = 0; i < out.size(); ++i)
         {
@@ -1302,11 +1421,11 @@ void buildMelody (Ctx& c)
             const bool strong = std::abs (n.start - std::round (n.start)) < 0.03;
             const double room = i == 0 ? n.start : n.start - (out[i - 1].start + 0.12);
             const int rel = wrap12 (n.pitch - c.keyPc);
-            if (c.s.melodyFlavor == 5 && strong && room >= 0.125 && (rel == 4 || rel == 7 || rel == 3) && fr.chance (0.45))
+            if (fx == 5 && strong && room >= 0.125 && (rel == 4 || rel == 7 || rel == 3) && fr.chance (0.45))
                 add.push_back ({ n.start - 0.0625, 0.06, n.pitch - 1, std::max (40, n.vel - 22) });            // slide up from the blue note
-            else if (c.s.melodyFlavor == 8 && strong && room >= 0.125 && fr.chance (0.4))
+            else if (fx == 8 && strong && room >= 0.125 && fr.chance (0.4))
                 add.push_back ({ n.start - 0.125, 0.11, n.pitch + (fr.chance (0.5) ? 1 : -1), std::max (40, n.vel - 18) });   // chromatic approach
-            else if (c.s.melodyFlavor == 7 && strong && n.start >= 0.5 && room >= 0.5 && fr.chance (0.35))
+            else if (fx == 7 && strong && n.start >= 0.5 && room >= 0.5 && fr.chance (0.35))
             { n.start -= 0.5; n.len += 0.5; }                                                                   // anticipate the beat (Latin push)
         }
         for (auto& e : add) if (e.start >= 0) out.push_back (e);
@@ -1804,12 +1923,34 @@ void harmonizeMelody (Ctx& c)
     if (h <= 0) return;
     auto& m = c.p->lanes[MelodyLane];
     std::vector<NoteEv> add;
-    for (auto& n : m)
+    std::sort (m.begin(), m.end(), [] (const NoteEv& a, const NoteEv& b) { return a.start < b.start; });
+    const bool hook = sectionGroup (c.s.section) == 0 || c.s.section == PreChorus;
+    for (size_t idx = 0; idx < m.size(); ++idx)
     {
+        auto& n = m[idx];
         const int st = c.stepOfPitch (n.pitch);
         std::vector<int> extra;
         switch (h)
         {
+            case 10:
+            {
+                // Smart: like a backing singer. In the hook, the strong and long notes get a chord tone underneath
+                // (a 3rd to a 6th below). In verses only the ends of phrases do. Quick notes stay solo.
+                const double gap = idx + 1 < m.size() ? m[idx + 1].start - (n.start + n.len) : 1.0;
+                const bool strong = std::abs (n.start - std::round (n.start)) < 0.03;
+                const bool sing = hook ? (n.len >= 0.45 || (strong && n.len >= 0.2)) : (gap >= 0.45 && n.len >= 0.3) || n.len >= 0.95;
+                if (! sing) break;
+                const int ci = c.chordIndexAt (n.start);
+                for (int d = 3; d <= 9; ++d)
+                    if (c.inChord (n.pitch - d, ci)) { extra = { n.pitch - d }; break; }
+                // the climax (the highest long note of the hook) gets a third voice too
+                bool top = hook && n.len >= 0.9 && ! extra.empty();
+                for (auto& o : m) if (top && o.pitch > n.pitch && o.len >= 0.5) top = false;
+                if (top)
+                    for (int d = 3; d <= 9; ++d)
+                        if (extra[0] - d >= 48 && c.inChord (extra[0] - d, ci)) { extra.push_back (extra[0] - d); break; }
+                break;
+            }
             case 1: extra = { c.pitchOfStep (st + 2) }; break;                         // 3rds up
             case 2: extra = { c.pitchOfStep (st - 2) }; break;                         // 3rds down
             case 3: extra = { c.pitchOfStep (st - 5) }; break;                         // 6ths down
@@ -1967,6 +2108,58 @@ void applyGroove (Ctx& c)
 
 // ---------------------------------------------------------------- bass octave jumps
 // Now and then one bass note jumps an octave up (or down) - the bounce real bass lines have.
+// 808 STUTTER + GLIDE: trap-style rolls, and slides from one note into the next
+void bass808 (Ctx& c)
+{
+    auto& b = c.p->lanes[BassLane];
+    if (b.empty() || (c.s.bassGlide <= 0.001f && c.s.bassStutter <= 0.001f)) return;
+    std::sort (b.begin(), b.end(), [] (const NoteEv& x, const NoteEv& y) { return x.start < y.start; });
+    Rng r (seedFor (c.s.bassSeed, 211, (uint64_t) std::lround (c.s.bassStutter * 100), (uint64_t) std::lround (c.s.bassGlide * 100)));
+
+    if (c.s.bassStutter > 0.001f)
+    {
+        std::vector<NoteEv> out;
+        for (auto& n : b)
+        {
+            if (n.len < 0.5 || ! r.chance (0.6 * c.s.bassStutter)) { out.push_back (n); continue; }
+            static const double rates[] = { 0.25, 1.0 / 6.0, 0.125 };
+            const double rate = rates[r.range (0, 2)];
+            const double rollLen = std::min (n.len, r.chance (0.5) ? 1.0 : 0.5);
+            const bool climb = r.chance (0.3);          // last hits jump up an octave
+            const int hits = std::max (2, (int) std::floor (rollLen / rate + 1.0e-6));
+            for (int k = 0; k < hits; ++k)
+            {
+                NoteEv e = n;
+                e.start = n.start + k * rate;
+                e.len = rate * 0.9;
+                e.vel = std::max (1, n.vel - (k % 2 == 1 ? 18 : 0));
+                if (climb && k >= hits - 2) e.pitch = std::min (n.pitch + 12, 72);
+                out.push_back (e);
+            }
+            if (n.len - hits * rate > 0.1)
+            {
+                NoteEv rest = n;
+                rest.start = n.start + hits * rate;
+                rest.len = n.len - hits * rate;
+                out.push_back (rest);
+            }
+        }
+        b.swap (out);
+    }
+    if (c.s.bassGlide > 0.001f)
+    {
+        // a slide: the note holds until just past the next one starts, so a mono 808 glides into it
+        for (size_t i = 0; i + 1 < b.size(); ++i)
+        {
+            auto& n = b[i];
+            const auto& nx = b[i + 1];
+            const double gap = nx.start - (n.start + n.len);
+            if (nx.pitch != n.pitch && gap < 0.5 && nx.start > n.start + 0.2 && r.chance (0.8 * c.s.bassGlide))
+                n.len = nx.start - n.start + 0.06;
+        }
+    }
+}
+
 void bassOctaveJumps (Ctx& c)
 {
     auto& bass = c.p->lanes[BassLane];
@@ -2234,6 +2427,7 @@ Pattern composeSection (const Settings& in)
     buildBass (c);
     bassOctaveJumps (c);
     varyTakes (c);
+    bass808 (c);
     harmonizeMelody (c);
     strumChords (c);
     strumParts (c);

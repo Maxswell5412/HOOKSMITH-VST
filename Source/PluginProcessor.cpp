@@ -31,7 +31,7 @@ juce::StringArray HooksmithProcessor::rateNames()
 
 juce::StringArray HooksmithProcessor::playModeNames()
 {
-    return { "Sync to DAW", "Hold a Key", "Chord Keys" };
+    return { "Sync to DAW", "Hold a Key", "Chord Keys", "Prog Keys" };
 }
 
 juce::StringArray HooksmithProcessor::soundNames()
@@ -134,8 +134,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout HooksmithProcessor::createLa
     layout.add (std::make_unique<AudioParameterBool> (ParameterID { "tapeLoop", 1 }, "Tape Stop at Loop End", false));
     flt ("tapeTime",  "Tape Stop Time", 0.1f, 3.0f, 0.8f);
     flt ("tapeStart", "Tape Start Time", 0.05f, 2.0f, 0.25f);
-    layout.add (std::make_unique<AudioParameterChoice> (ParameterID { "melHarm", 1 }, "Melody Harmony", toStringArray (harmonyNames()), 0));
+    layout.add (std::make_unique<AudioParameterChoice> (ParameterID { "melHarm", 1 }, "Melody Harmony", toStringArray (harmonyNames()), 10));   // Smart
     layout.add (std::make_unique<AudioParameterChoice> (ParameterID { "melFlavor", 1 }, "Melody Flavor", toStringArray (melodyFlavorNames()), 0));
+    layout.add (std::make_unique<AudioParameterChoice> (ParameterID { "changes", 1 }, "Chord Changes", toStringArray (chordChangesNames()), 0));
+    // 808 (bass)
+    flt ("b808Drive", "808 Drive", 0.0f, 1.0f, 0.0f);
+    layout.add (std::make_unique<AudioParameterChoice> (ParameterID { "wobRate", 1 }, "808 Wobble Rate",
+                                                        StringArray { "Off", "1/2", "1/4", "1/4 Triplet", "1/8", "1/8 Triplet", "1/16" }, 0));
+    flt ("wobDepth", "808 Wobble Depth", 0.0f, 1.0f, 0.5f);
+    flt ("stutter", "808 Stutter", 0.0f, 1.0f, 0.0f);
+    flt ("glide", "808 Glide", 0.0f, 1.0f, 0.0f);
+    layout.add (std::make_unique<AudioParameterChoice> (ParameterID { "voicing", 1 }, "Chord Voicing", toStringArray (voicingStyleNames()), 0));
 
     for (int l = 0; l < kNumLanes; ++l)
     {
@@ -182,6 +191,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout HooksmithProcessor::createLa
                                                            AudioParameterFloatAttributes().withStringFromValueFunction (
                                                                [] (float v, int) { return v > 0.997f ? String ("Off") : String (roundToInt (hs::PartTone::lpHz (v))) + " Hz"; })));
         layout.add (std::make_unique<AudioParameterFloat> (ParameterID { laneParam (l, "gain"), 1 },   n + "Gain (Bus Comp)", NormalisableRange<float> (0.0f, 1.0f), 0.5f));
+        layout.add (std::make_unique<AudioParameterFloat> (ParameterID { laneParam (l, "res"), 1 },    n + "Resonance", NormalisableRange<float> (0.0f, 1.0f), 0.15f));
 
         if (l < kArpLanes)   // every melodic part has its own arpeggiator
         {
@@ -207,6 +217,8 @@ HooksmithProcessor::HooksmithProcessor()
     pGenre = raw ("genre"); pSection = raw ("section"); pBars = raw ("bars"); pKey = raw ("key");
     pSpice = raw ("spice");
     pMelHarm = raw ("melHarm"); pMelFlavor = raw ("melFlavor");
+    pChanges = raw ("changes"); pVoicing = raw ("voicing");
+    p808Drive = raw ("b808Drive"); pWobRate = raw ("wobRate"); pWobDepth = raw ("wobDepth"); pStutter = raw ("stutter"); pGlide = raw ("glide");
     pScale = raw ("scale"); pProg = raw ("prog"); pComplexity = raw ("complexity"); pDensity = raw ("density");
     pGroove = raw ("groove"); pHumanize = raw ("humanize"); pMode = raw ("mode"); pPlay = raw ("play");
     pBpm = raw ("bpm"); pMidiOut = raw ("midiOut"); pSketchVol = raw ("sketchVol");
@@ -242,6 +254,7 @@ HooksmithProcessor::HooksmithProcessor()
         pPartHp[(size_t) l]    = raw (laneParam (l, "hp"));
         pPartLp[(size_t) l]    = raw (laneParam (l, "lp"));
         pPartGain[(size_t) l]  = raw (laneParam (l, "gain"));
+        pPartRes[(size_t) l]   = raw (laneParam (l, "res"));
     }
     pTapeStop = raw ("tapeStop"); pTapeLoop = raw ("tapeLoop"); pTapeTime = raw ("tapeTime"); pTapeStart = raw ("tapeStart");
 
@@ -299,6 +312,10 @@ hs::Settings HooksmithProcessor::currentSettings() const
     s.harmonySeed = seeds[0]; s.melodySeed = seeds[1]; s.bassSeed = seeds[2]; s.drumSeed = seeds[3];
     s.melodyHarmony = (int) pMelHarm->load();
     s.melodyFlavor = (int) pMelFlavor->load();
+    s.chordChanges = (int) pChanges->load();
+    s.bassStutter = std::round (pStutter->load() * 50.0f) / 50.0f;
+    s.bassGlide = std::round (pGlide->load() * 50.0f) / 50.0f;
+    s.voicingStyle = (int) pVoicing->load();
     for (int l = 0; l < kNumLanes; ++l)
     {
         s.variant[(size_t) l] = takes[(size_t) l] % 3;
@@ -327,7 +344,9 @@ bool HooksmithProcessor::settingsChanged (const Settings& s) const
         || s.variant != o.variant || s.noteLength != o.noteLength
         || s.machine != o.machine || s.machineFlavor != o.machineFlavor
         || s.machineExaggerate != o.machineExaggerate || s.machineFunk != o.machineFunk
-        || s.laneStrum != o.laneStrum || s.melodyHarmony != o.melodyHarmony || s.melodyFlavor != o.melodyFlavor;
+        || s.laneStrum != o.laneStrum || s.melodyHarmony != o.melodyHarmony || s.melodyFlavor != o.melodyFlavor
+        || s.chordChanges != o.chordChanges || s.voicingStyle != o.voicingStyle
+        || s.bassStutter != o.bassStutter || s.bassGlide != o.bassGlide;
 }
 
 void HooksmithProcessor::timerCallback()
@@ -397,6 +416,9 @@ void HooksmithProcessor::rebuild()
             for (int i = 0; i < cnt; ++i) d->keyNotes[(size_t) key][(size_t) i] = captured[(size_t) key][(size_t) i];
         }
     }
+
+    // PROG KEYS: the progression's chords exactly as voiced
+    for (auto& ch : uiPattern.chords) d->progChords.push_back (ch.notes);
 
     // Chord Keys voicings: every pad voiced near the home chord, so moving between them is smooth
     const auto home = voiceChord (uiBank[0].rootPc, uiBank[0].intervals, s.genre, {}, 62);
@@ -853,6 +875,39 @@ void HooksmithProcessor::chordKeyOn (int note, int vel, int pos)
     displayHeldSlot.store (slot);
 }
 
+// White keys from C3 (MIDI 60) play chord 1, 2, 3...; it repeats every N white keys, up and down
+int HooksmithProcessor::progChordForKey (int note, int numChords)
+{
+    if (numChords <= 0) return -1;
+    static const int white[12] = { 0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6 };
+    const int w = white[note % 12];
+    if (w < 0) return -1;
+    const int idx = (note / 12) * 7 + w - 35;
+    return ((idx % numChords) + numChords) % numChords;
+}
+
+void HooksmithProcessor::progKeyOn (int note, int vel, int pos)
+{
+    const auto* d = current.get();
+    if (d == nullptr) return;
+    const int ci = progChordForKey (note, (int) d->progChords.size());
+    chordKeyOff (note, pos);
+    if (ci < 0) return;
+    const int shift = 12 * (int) pLaneOct[0]->load();
+    int count = 0;
+    for (int src : d->progChords[(size_t) ci])
+    {
+        if (count >= 8) break;   // keyChord holds 8 notes per key
+        const int p = juce::jlimit (0, 127, src + shift);
+        if (activeOff[0][(size_t) p] >= 0.0) emitNote (ChordsLane, false, p, 0, pos);
+        emitNote (ChordsLane, true, p, vel, pos);
+        activeOff[0][(size_t) p] = kHeld;
+        keyChord[(size_t) note][(size_t) count++] = p;
+    }
+    keyChordCount[(size_t) note] = count;
+    displayHeldProg.store (ci);
+}
+
 void HooksmithProcessor::chordKeyOff (int note, int pos)
 {
     for (int i = 0; i < keyChordCount[(size_t) note]; ++i)
@@ -866,6 +921,7 @@ void HooksmithProcessor::chordKeyOff (int note, int pos)
     }
     if (keyChordCount[(size_t) note] > 0 && displayHeldSlot.load() == note % 12)
         displayHeldSlot.store (-1);
+    if (keyChordCount[(size_t) note] > 0) displayHeldProg.store (-1);
     keyChordCount[(size_t) note] = 0;
 }
 
@@ -1014,7 +1070,13 @@ void HooksmithProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
             const auto m = meta.getMessage();
             const int pos = meta.samplePosition - start;
 
-            if (mode == ChordKeysMode)
+            if (mode == ProgKeysMode)
+            {
+                if (m.isNoteOn())       progKeyOn (m.getNoteNumber(), m.getVelocity(), pos);
+                else if (m.isNoteOff()) chordKeyOff (m.getNoteNumber(), pos);
+                else                    laneMidi[0].addEvent (m, pos);
+            }
+            else if (mode == ChordKeysMode)
             {
                 if (m.isNoteOn())       chordKeyOn (m.getNoteNumber(), m.getVelocity(), pos);
                 else if (m.isNoteOff()) chordKeyOff (m.getNoteNumber(), pos);
@@ -1055,7 +1117,8 @@ void HooksmithProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
         bool running = false;
         double c0 = 0.0;
         int transpose = 0;
-        if (mode == SyncMode)
+        const bool progKeys = mode == ProgKeysMode;   // like Sync, but your keyboard plays the chords
+        if (mode == SyncMode || progKeys)
         {
             running = hostPlaying || internalPlay;
             c0 = (hostPlaying ? hostPpq : internalClock) + start * bps;
@@ -1071,13 +1134,13 @@ void HooksmithProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
         if (running && d != nullptr)
         {
             if (wasRunning && std::abs (c0 - lastClock) > 0.05)   // loop / jump in the DAW
-                for (int l = 0; l < kNumLanes; ++l) killLane (l, 0);
+                for (int l = 0; l < kNumLanes; ++l) if (! (progKeys && l == ChordsLane)) killLane (l, 0);
             if (transpose != lastTranspose)
                 for (int l = 0; l < kNumLanes; ++l) if (l != DrumsLane) killLane (l, 0);
             lastTranspose = transpose;
 
             for (int l = 0; l < kNumLanes; ++l)
-                if (laneWasOn[(size_t) l])
+                if (laneWasOn[(size_t) l] && ! (progKeys && l == ChordsLane))
                     scheduleLane (l, *d, c0, c1, len, bps, transpose);
 
             lastClock = c1;
@@ -1087,7 +1150,7 @@ void HooksmithProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
         else
         {
             if (wasRunning)
-                for (int l = 0; l < kNumLanes; ++l) killLane (l, 0);
+                for (int l = 0; l < kNumLanes; ++l) if (! (progKeys && l == ChordsLane)) killLane (l, 0);
             wasRunning = false;
             if (start == 0) displayPos.store (-1.0);
         }
@@ -1147,6 +1210,7 @@ void HooksmithProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
             else if (u == 2)
             {
                 sketch[(size_t) l].setPatch (builtInPatch (l));
+                if (l == BassLane) sketch[(size_t) l].setGlide (0.025f + 0.3f * pGlide->load());
                 sketch[(size_t) l].render (laneMidi[(size_t) l], bl, br, len, (float) sketchGain);
                 hasAudio = true;
             }
@@ -1174,7 +1238,15 @@ void HooksmithProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
                 {
                     PartToneSettings pts;
                     pts.hp = pPartHp[(size_t) l]->load(); pts.lp = pPartLp[(size_t) l]->load(); pts.gain = pPartGain[(size_t) l]->load();
-                    partTone[(size_t) l].process (bl, br, len, pts);
+                    pts.res = pPartRes[(size_t) l]->load();
+                    if (l == BassLane)
+                    {
+                        static const double rates[] = { 0.0, 2.0, 1.0, 2.0 / 3.0, 0.5, 1.0 / 3.0, 0.25 };
+                        pts.drive = p808Drive->load();
+                        pts.wobbleBeats = rates[juce::jlimit (0, 6, (int) pWobRate->load())];
+                        pts.wobble = pWobDepth->load();
+                    }
+                    partTone[(size_t) l].process (bl, br, len, pts, running ? c0 : freeClock + start * bps, bps);
                 }
 
                 juce::FloatVectorOperations::addWithMultiply (outL + start, bl, vol, len);

@@ -452,7 +452,22 @@ int main()
         for (auto& e : base.lanes[ChordsLane]) spread0 += e.start - std::round (e.start * 4) / 4;
         for (auto& e : st.lanes[ChordsLane]) spread1 += e.start - std::round (e.start * 4) / 4;
         CHECK (spread1 > spread0 + 0.01 * (double) st.lanes[ChordsLane].size(), "chord STRUM rolls the notes (%.2f vs %.2f)", spread1, spread0);
-        std::printf ("melody harmony + flavor + strum ok\n");
+        // 808 STUTTER: more, shorter bass hits; GLIDE: notes overlap the next one (so a mono 808 slides)
+        {
+            Settings b = s; b.genre = 9; b.bassStutter = 1.0f;
+            const auto plain = compose (s.genre == 9 ? s : [&] { Settings x = s; x.genre = 9; return x; }());
+            const auto st = compose (b);
+            CHECK (st.lanes[BassLane].size() > plain.lanes[BassLane].size(), "808 STUTTER adds rolls (%zu -> %zu)", plain.lanes[BassLane].size(), st.lanes[BassLane].size());
+            Settings gl = s; gl.genre = 9; gl.bassGlide = 1.0f;
+            const auto gp = compose (gl);
+            auto bl = gp.lanes[BassLane];
+            std::sort (bl.begin(), bl.end(), [] (const NoteEv& x, const NoteEv& y) { return x.start < y.start; });
+            int slides = 0;
+            for (size_t i = 0; i + 1 < bl.size(); ++i) if (bl[i].start + bl[i].len > bl[i + 1].start + 0.01 && bl[i].pitch != bl[i + 1].pitch) ++slides;
+            CHECK (slides >= 1, "808 GLIDE makes slides (%d)", slides);
+            for (auto& n : st.lanes[BassLane]) CHECK (n.len > 0 && n.pitch >= 20 && n.pitch <= 84, "stutter notes valid");
+        }
+        std::printf ("melody harmony + flavor + strum + 808 ok\n");
     }
 
     std::printf ("%d patterns composed, %d failures\n", total, failures);

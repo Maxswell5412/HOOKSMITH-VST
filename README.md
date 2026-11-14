@@ -49,6 +49,15 @@ Needs CMake 3.22+ and a C++17 compiler (Xcode on Mac, Visual Studio 2022 on Wind
 
 ---
 
+## New in v0.6
+- **Creative melodies:** every GENERATE writes the 8 bars like a story, using the tricks songwriters use: a sequence (the idea again, higher), an inversion, a fragment repeated, a displaced echo, and a climax that reaches a new peak note and holds it.
+- **Smart harmony (new default):** a backing-singer voice under the hook's strong and long notes, three voices on the climax, and only the ends of phrases in verses. Turn it off or pick 3rds, 6ths, octaves and more under MELODY HARMONY.
+- **Melody FLAVOR on Auto** picks a different character that suits the genre on each GENERATE (catchy, soulful runs, rap flow, dreamy, bluesy, latin, jazz...).
+- **PROG KEYS mode:** like Cthulhu - white keys from C3 play chord 1, 2, 3... of your progression while the drums, bass and melody keep playing with your DAW. The chord strip shows which key plays which chord.
+- **PROGRESSOR:** < and > step through the progressions, DICE picks a random one (right-click DICE for random key, key + scale, or SURPRISE ME), the progression shows as Roman numerals, and two new menus: CHANGES (Slow, Every Bar, Twice a Bar, Pushes) and VOICING (Close, Wide, Low & Dark, High & Bright).
+- **Moog-style LOW PASS:** the PART TONE low pass is now a 24 dB ladder filter with a RES knob, in the spirit of the Minimoog.
+- **808 section** (PART TONE, BASS tab): WOBBLE locked to your DAW (1/2 to 1/16), STUTTER (trap rolls), GLIDE (slides between notes) and DRIVE.
+
 ## New in v0.5.1
 - **Fixed:** after GENERATE (or GENERATE ALL) the screen showed the new pattern but the old one kept playing. You now hear every new idea straight away.
 

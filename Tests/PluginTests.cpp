@@ -175,10 +175,13 @@ int main()
         p.generateAll();
         const auto pat = p.getPattern();
         auto evs = run (p, head, (int) (samplesPerBeat * 4 / block), block, sr, { { 0, juce::MidiMessage::noteOn (1, 65, (juce::uint8) 100) } });
-        int firstMelody = -1;
-        for (auto& e : evs) if (e.on && e.ch == 2) { firstMelody = e.note; break; }
-        CHECK (! pat.lanes[1].empty() && firstMelody == pat.lanes[1].front().pitch + 5, "holding F transposes up 5 (%d vs %d)",
-               firstMelody, pat.lanes[1].empty() ? -1 : pat.lanes[1].front().pitch);
+        // the melody's notes (the lead and any harmony) all move up 5
+        std::set<int> heard, wantSet;
+        for (auto& e : evs) if (e.on && e.ch == 2 && e.sample < samplesPerBeat * 3.5) heard.insert (e.note);
+        for (auto& n : pat.lanes[1]) if (n.start < 3.4) wantSet.insert (n.pitch + 5);
+        bool inside = ! heard.empty();
+        for (int n : heard) inside = inside && wantSet.count (n) > 0;
+        CHECK (! pat.lanes[1].empty() && inside, "holding F transposes up 5 (%zu notes heard)", heard.size());
         for (auto& e : evs) CHECK (e.ch != 10, "drums lane switched off");
     }
 
@@ -372,6 +375,20 @@ int main()
         CHECK (rms() < dry * 0.9, "LOW PASS cuts the 3 kHz tone");
         ts = {}; ts.hp = 0.9f; fill(); pt.prepare (48000.0); pt.process (L.data(), R.data(), 48000, ts);
         CHECK (rms() < dry * 0.75, "HIGH PASS cuts the 110 Hz tone");
+        // Moog-style ladder: cuts highs, resonance + drive stay sane; WOBBLE moves with the beat
+        ts = {}; ts.lp = 0.3f; ts.res = 0.9f; ts.drive = 1.0f; fill(); pt.prepare (48000.0); pt.process (L.data(), R.data(), 48000, ts);
+        { float pk = 0; bool fin = true; for (float x : L) { pk = std::max (pk, std::abs (x)); fin = fin && std::isfinite (x); }
+          CHECK (fin && pk < 2.5f && rms() > 0.01, "ladder with RES + DRIVE is sane (peak %.2f)", pk); }
+        {
+            ts = {}; ts.wobbleBeats = 1.0; ts.wobble = 1.0f;
+            fill(); pt.prepare (48000.0);
+            const double bps = 120.0 / 60.0 / 48000.0;   // 120 bpm
+            for (int i = 0; i < 48000; i += 256) pt.process (L.data() + i, R.data() + i, std::min (256, 48000 - i), ts, i * bps, bps);
+            // loudness of the 3 kHz part on the beat vs halfway between beats
+            auto seg = [&] (int a, int b) { double e = 0; for (int i = a; i < b; ++i) e += L[(size_t) i] * L[(size_t) i]; return std::sqrt (e / (b - a)); };
+            const double onBeat = seg (24000 - 600, 24000 + 600), offBeat = seg (36000 - 600, 36000 + 600);
+            CHECK (onBeat > offBeat * 1.15, "WOBBLE opens on the beat, closes between (%.3f vs %.3f)", onBeat, offBeat);
+        }
         std::printf ("part tone ok\n");
     }
 
@@ -417,13 +434,15 @@ int main()
             CHECK (progs.size() >= 5, "6 chord GENERATEs give new progressions (%zu different)", progs.size());
             CHECK (lows.size() >= 3, "and they move around the keyboard (%zu top notes)", lows.size());
         }
+        p.recallSlot (hs::MelodyLane, 1);
+        const auto m2now = p.getPattern().lanes[hs::MelodyLane];   // slot 2 over today's chords
         juce::MemoryBlock mb; p.getStateInformation (mb);
         HooksmithProcessor q; q.setPlayConfigDetails (0, 2, 48000.0, 512); q.prepareToPlay (48000.0, 512);
         q.setStateInformation (mb.getData(), (int) mb.getSize());
         CHECK (q.slotUsed (hs::MelodyLane, 0) && q.slotUsed (hs::MelodyLane, 1) && ! q.slotUsed (hs::MelodyLane, 2), "slots saved with the project");
         q.recallSlot (hs::MelodyLane, 1);
         const auto m2b = q.getPattern().lanes[hs::MelodyLane];
-        CHECK (m2b.size() == m2.size(), "slot 2 restores after reload");
+        CHECK (m2b.size() == m2now.size() && ! m2b.empty() && m2b.front().pitch == m2now.front().pitch, "slot 2 restores after reload");
         p.clearSlot (hs::MelodyLane, 1);
         CHECK (! p.slotUsed (hs::MelodyLane, 1), "slot cleared");
         std::printf ("memory slots ok\n");

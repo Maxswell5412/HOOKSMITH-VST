@@ -97,6 +97,11 @@ private:
     }
 
     bool monoPatch() const { return patch == Bass808 || patch == Reese || patch == SawBass || patch == SubBass; }
+public:
+    // 808 GLIDE: how long a slide takes (seconds). Longer glides also keep the 808's boom going instead of re-hitting it.
+    void setGlide (float seconds) noexcept { glideTime = std::clamp (seconds, 0.005f, 0.5f); }
+private:
+    float glideTime = 0.025f;
 
     void noteOn (int note, float vel)
     {
@@ -107,7 +112,7 @@ private:
                 if (v.active && ! v.released && v.patch == patch)
                 {
                     v.note = note; v.vel = vel; v.targetFreq = midiHz (note);
-                    if (patch == Bass808) v.t = 0.0;
+                    if (patch == Bass808 && glideTime < 0.06f) v.t = 0.0;   // short glide = a new hit; long glide = one sliding boom
                     return;
                 }
         }
@@ -333,7 +338,7 @@ private:
             case Bass808:
             {
                 const float e = adsr (v, dt, 0.003f, 2.5f, 0.0f, 0.06f);
-                v.freq += (v.targetFreq - v.freq) * (1.0 - std::exp (-dt / 0.025));   // glide / punch
+                v.freq += (v.targetFreq - v.freq) * (1.0 - std::exp (-dt / glideTime));   // glide / punch
                 v.phase += juce::MathConstants<double>::twoPi * v.freq * dt;
                 return std::tanh ((float) std::sin (v.phase) * 2.2f) * e * v.vel * 0.32f;
             }

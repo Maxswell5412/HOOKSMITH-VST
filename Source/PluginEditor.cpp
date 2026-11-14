@@ -60,12 +60,22 @@ void RollScreen::paint (juce::Graphics& g)
         }
     }
 
-    // chord names
+    // chord names (PROG KEYS: with the key that plays each one)
+    const bool progKeys = (int) proc.apvts.getRawParameterValue ("mode")->load() == hs::ProgKeysMode;
+    int chordIdx = -1;
     for (auto& ch : p.chords)
     {
+        ++chordIdx;
         const float x0 = xOf (ch.start), x1 = xOf (ch.start + ch.len);
         auto cell = juce::Rectangle<float> (x0, chordStrip.getY(), x1 - x0, chordStrip.getHeight()).reduced (1.5f, 1.0f);
-        const bool now = pos >= ch.start && pos < ch.start + ch.len;
+        const bool now = progKeys ? proc.heldProgChord() == chordIdx : (pos >= ch.start && pos < ch.start + ch.len);
+        if (progKeys)
+        {
+            static const char* kn[] = { "C", "D", "E", "F", "G", "A", "B" };
+            g.setFont (Fonts::mono (9.0f));
+            g.setColour (Col::cyan.withAlpha (0.8f));
+            g.drawText (juce::String (kn[chordIdx % 7]) + juce::String (3 + chordIdx / 7), cell.reduced (3.0f, 1.0f), juce::Justification::topLeft);
+        }
         g.setColour (Col::amber.withAlpha (now ? 0.28f : 0.08f));
         g.fillRoundedRectangle (cell, 3.0f);
         const float fh = cell.getWidth() > 60 ? 15.0f : cell.getWidth() > 36 ? 12.0f : 9.5f;
@@ -574,7 +584,7 @@ HooksmithPanel::HooksmithPanel (HooksmithProcessor& p)
 
     // Header
     mode.addItemList (HooksmithProcessor::playModeNames(), 1);
-    mode.setTooltip ("SYNC: plays with your DAW.  HOLD A KEY: plays while you hold a note (transposes).  CHORD KEYS: every key plays a chord from the bank");
+    mode.setTooltip ("SYNC: plays with your DAW.  HOLD A KEY: plays while you hold a note (transposes).  CHORD KEYS: every key plays a chord from the bank.  PROG KEYS: like Cthulhu, white keys from C3 play chord 1, 2, 3... of your progression while drums, bass and melody keep playing with the DAW");
     playButton.setClickingTogglesState (true);
     playButton.setTooltip ("Play without pressing play in the DAW (uses the TEMPO knob if the DAW gives no tempo)");
     generateButton.getProperties().set ("accent", true);
@@ -623,6 +633,26 @@ HooksmithPanel::HooksmithPanel (HooksmithProcessor& p)
     // Screen + PROGRESSOR
     addAndMakeVisible (screen);
     progression.setTooltip ("Pick a named progression, or AUTO to let the PROGRESSOR choose one for each section");
+    progPrev.setTooltip ("Previous progression (it plays straight away)");
+    progNext.setTooltip ("Next progression (it plays straight away)");
+    progPrev.onClick = [this] { stepProgression (-1); };
+    progNext.onClick = [this] { stepProgression (1); };
+    diceButton.setTooltip ("DICE: a random progression for this genre. Right-click for more: random key, key + scale, or SURPRISE ME (key, scale, changes, voicing and progression)");
+    diceButton.onClick = [this]
+    {
+        if (juce::ModifierKeys::currentModifiers.isPopupMenu()) return;
+        rollDice (0);
+    };
+    diceButton.addMouseListener (this, false);
+    addItems (changesBox, hs::chordChangesNames());
+    addItems (voicingBox, hs::voicingStyleNames());
+    changesBox.setTooltip ("CHANGES: how often the chords move. Slow = every 2 bars, Every Bar, Twice a Bar, Pushes = each change lands an eighth early");
+    voicingBox.setTooltip ("VOICING: how the chords are spread. Close, Wide (melodic: bass low, chord spread above), Low & Dark, High & Bright");
+    for (juce::Component* c : { (juce::Component*) &progPrev, (juce::Component*) &progNext, (juce::Component*) &diceButton,
+                                (juce::Component*) &changesBox, (juce::Component*) &voicingBox })
+        addAndMakeVisible (c);
+    changesA = std::make_unique<CA> (proc.apvts, "changes", changesBox);
+    voicingA = std::make_unique<CA> (proc.apvts, "voicing", voicingBox);
     progression.onChange = [this]
     {
         const int idx = juce::jmax (0, progression.getSelectedItemIndex());
@@ -799,14 +829,32 @@ HooksmithPanel::HooksmithPanel (HooksmithProcessor& p)
     }
     pStrum.setTooltip ("STRUM: notes played together roll like a guitar (down on the beat, up off it). Single notes lay back behind the beat");
     pHp.setTooltip ("HIGH PASS: cuts the lows of this part (off at the left, up to 1.5 kHz)");
-    pLp.setTooltip ("LOW PASS: cuts the highs of this part (off at the right, down to 300 Hz)");
+    pLp.setTooltip ("LOW PASS: a Moog-style 24 dB ladder filter, the Minimoog bass sound (off at the right, down to 300 Hz)");
+    pRes.setTooltip ("RES: resonance for both filters. Turn it up with the LOW PASS for that singing Moog squelch");
+    pRes.setDoubleClickReturnValue (true, 0.15);
     pGain.setTooltip ("GAIN: middle = as is. Left = quieter. Right = pushes the part into a console bus compressor (4:1, auto release, a little saturation): louder, punchier, glued");
     pGain.setBipolar (true);
     pGain.setDoubleClickReturnValue (true, 0.5);
     pStrum.setDoubleClickReturnValue (true, 0.0);
     pHp.setDoubleClickReturnValue (true, 0.0);
     pLp.setDoubleClickReturnValue (true, 1.0);
-    for (auto* k : { &pStrum, &pHp, &pLp, &pGain }) addAndMakeVisible (*k);
+    for (auto* k : { &pStrum, &pHp, &pLp, &pRes, &pGain }) addAndMakeVisible (*k);
+    // 808
+    wobRate.addItemList ({ "Off", "1/2", "1/4", "1/4 Triplet", "1/8", "1/8 Triplet", "1/16" }, 1);
+    wobRate.setTooltip ("WOBBLE: sweeps the bass LOW PASS in time with your DAW (dubstep / trap wobble). Pick the speed here");
+    wobDepth.setTooltip ("WOBBLE DEPTH: how far the wobble sweeps the filter down");
+    stutterK.setTooltip ("STUTTER: 808 rolls - 1/16, triplet and 1/32 retriggers on the bass notes, sometimes jumping up an octave");
+    glideK.setTooltip ("GLIDE: the 808 slides from one note into the next. More = more slides and longer, smoother glides");
+    driveK.setTooltip ("DRIVE: pushes the 808 into the Moog-style filter for grit and growl");
+    wobDepth.setDoubleClickReturnValue (true, 0.5);
+    for (juce::Component* c : { (juce::Component*) &wobRate, (juce::Component*) &wobDepth, (juce::Component*) &stutterK,
+                                (juce::Component*) &glideK, (juce::Component*) &driveK })
+        addAndMakeVisible (c);
+    wobRateA  = std::make_unique<CA> (proc.apvts, "wobRate", wobRate);
+    wobDepthA = std::make_unique<SA> (proc.apvts, "wobDepth", wobDepth);
+    stutterA  = std::make_unique<SA> (proc.apvts, "stutter", stutterK);
+    glideA    = std::make_unique<SA> (proc.apvts, "glide", glideK);
+    drive808A = std::make_unique<SA> (proc.apvts, "b808Drive", driveK);
     addItems (melHarm, hs::harmonyNames());
     addItems (melFlavor, hs::melodyFlavorNames());
     melHarm.setTooltip ("MELODY HARMONY: a second voice that follows the melody in the key - 3rds, 6ths, octaves, 5ths, stacks, or the chord tones");
@@ -890,14 +938,20 @@ void HooksmithPanel::selectPartLane (int lane)
 {
     partLane = juce::jlimit (0, hs::kNumLanes - 1, lane);
     auto id = [this] (const char* w) { return HooksmithProcessor::laneParam (partLane, w); };
-    pStrumA.reset(); pHpA.reset(); pLpA.reset(); pGainA.reset();
+    pStrumA.reset(); pHpA.reset(); pLpA.reset(); pResA.reset(); pGainA.reset();
+    pResA   = std::make_unique<SA> (proc.apvts, id ("res"), pRes);
     pStrumA = std::make_unique<SA> (proc.apvts, id ("pstrum"), pStrum);
     pHpA    = std::make_unique<SA> (proc.apvts, id ("hp"), pHp);
     pLpA    = std::make_unique<SA> (proc.apvts, id ("lp"), pLp);
     pGainA  = std::make_unique<SA> (proc.apvts, id ("gain"), pGain);
     pStrum.setEnabled (partLane != hs::DrumsLane);
+    const bool mel = partLane == hs::MelodyLane, bass = partLane == hs::BassLane;
+    melHarm.setVisible (mel); melFlavor.setVisible (mel);
+    for (juce::Component* c : { (juce::Component*) &wobRate, (juce::Component*) &wobDepth, (juce::Component*) &stutterK,
+                                (juce::Component*) &glideK, (juce::Component*) &driveK })
+        c->setVisible (bass);
     for (int i = 0; i < partTabs.size(); ++i) partTabs[i]->setToggleState (i == partLane, juce::dontSendNotification);
-    repaint (partArea);
+    repaint();
 }
 
 void HooksmithPanel::setChoice (const juce::String& id, int index)
@@ -943,6 +997,64 @@ void HooksmithPanel::filesDropped (const juce::StringArray& files, int, int)
     importFiles (fs);
 }
 
+void HooksmithPanel::mouseDown (const juce::MouseEvent& e)
+{
+    if (e.eventComponent != &diceButton || ! e.mods.isPopupMenu()) return;
+    juce::PopupMenu m;
+    m.addItem (1, "Random progression");
+    m.addItem (2, "Random key");
+    m.addItem (3, "Random key + scale");
+    m.addSeparator();
+    m.addItem (4, "SURPRISE ME (key, scale, changes, voicing, progression)");
+    juce::Component::SafePointer<HooksmithPanel> safe (this);
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&diceButton), [safe] (int r)
+    {
+        if (safe != nullptr && r > 0) safe->rollDice (r - 1);
+    });
+}
+
+void HooksmithPanel::stepProgression (int dir)
+{
+    const int named = (int) hs::progressionNames ((int) proc.apvts.getRawParameterValue ("genre")->load()).size();
+    int idx = proc.getActiveImport() >= 0 ? 0 : (int) proc.apvts.getRawParameterValue ("prog")->load();
+    idx = ((idx + dir) % (named + 1) + named + 1) % (named + 1);    // 0 = Auto, 1..N named
+    progression.setSelectedItemIndex (idx, juce::sendNotificationSync);
+    setStatus (idx == 0 ? juce::String ("PROGRESSION: AUTO") : "PROGRESSION: " + progression.getText().toUpperCase());
+}
+
+void HooksmithPanel::rollDice (int what)
+{
+    juce::Random rnd;
+    auto setP = [this] (const juce::String& id, int v)
+    {
+        if (auto* prm = proc.apvts.getParameter (id))
+        {
+            prm->beginChangeGesture();
+            prm->setValueNotifyingHost (prm->convertTo0to1 ((float) v));
+            prm->endChangeGesture();
+        }
+    };
+    if (what == 1 || what == 2 || what == 3) setP ("key", rnd.nextInt (12));
+    if (what == 2 || what == 3) setP ("scale", rnd.nextInt (3));   // Auto, Major, Minor
+    if (what == 3)
+    {
+        setP ("changes", rnd.nextInt ((int) hs::chordChangesNames().size()));
+        setP ("voicing", rnd.nextInt ((int) hs::voicingStyleNames().size()));
+    }
+    if (what == 0 || what == 3)
+    {
+        const int named = (int) hs::progressionNames ((int) proc.apvts.getRawParameterValue ("genre")->load()).size();
+        const int cur = (int) proc.apvts.getRawParameterValue ("prog")->load();
+        int idx = cur;
+        if (named > 1) while (idx == cur) idx = 1 + rnd.nextInt (named);
+        else idx = 1;
+        if (proc.getActiveImport() >= 0) proc.selectImport (-1);
+        progression.setSelectedItemIndex (idx, juce::sendNotificationSync);
+    }
+    setStatus (what == 0 ? "DICE: " + progression.getText().toUpperCase()
+               : what == 1 ? juce::String ("DICE: NEW KEY") : what == 2 ? juce::String ("DICE: NEW KEY + SCALE") : juce::String ("SURPRISE!"));
+}
+
 void HooksmithPanel::refreshProgressions()
 {
     const auto items = proc.progressionMenu();
@@ -979,9 +1091,9 @@ void HooksmithPanel::resized()
         auto tabs = juce::Rectangle<int> (partArea.getX() + 216, partArea.getY() + 6, 4 * 92, 24);
         for (auto* t : partTabs) { t->setBounds (tabs.removeFromLeft (88)); tabs.removeFromLeft (4); }
         auto c = partArea.reduced (14, 0).withTrimmedTop (36).withHeight (48);
-        auto left = c.removeFromLeft (576);
-        const int kw = left.getWidth() / 4;
-        for (auto* k : { &pStrum, &pHp, &pLp, &pGain })
+        auto left = c.removeFromLeft (520);
+        const int kw = left.getWidth() / 5;
+        for (auto* k : { &pStrum, &pHp, &pLp, &pRes, &pGain })
             k->setBounds (left.removeFromLeft (kw).withSizeKeepingCentre (42, 42).translated (0, -4));
         c.removeFromLeft (20);
         melGroup = c;
@@ -990,6 +1102,12 @@ void HooksmithPanel::resized()
         auto colB = m.reduced (8, 0);
         melHarm.setBounds (colA.removeFromBottom (28));
         melFlavor.setBounds (colB.removeFromBottom (28));
+        // 808 row in the same space
+        auto e = c;
+        wobRate.setBounds (e.removeFromLeft (120).reduced (4, 0).withTrimmedTop (18).withHeight (26));
+        const int ew = e.getWidth() / 4;
+        for (auto* k : { &wobDepth, &stutterK, &glideK, &driveK })
+            k->setBounds (e.removeFromLeft (ew).withSizeKeepingCentre (42, 42).translated (0, -4));
     }
 
     // COLOR
@@ -1051,25 +1169,38 @@ void HooksmithPanel::resized()
 
     // PROGRESSOR
     auto pr = progArea.reduced (12, 0);
-    progression.setBounds (pr.getX(), progArea.getY() + 36, pr.getWidth(), 28);
+    {
+        auto row = juce::Rectangle<int> (pr.getX(), progArea.getY() + 36, pr.getWidth(), 28);
+        progPrev.setBounds (row.removeFromLeft (30));
+        row.removeFromLeft (4);
+        diceButton.setBounds (row.removeFromRight (70));
+        row.removeFromRight (4);
+        progNext.setBounds (row.removeFromRight (30));
+        row.removeFromRight (4);
+        progression.setBounds (row);
+        progReadout = { pr.getX(), progArea.getY() + 66, pr.getWidth(), 16 };
+    }
     importButton.setBounds (pr.getRight() - 196, progArea.getY() + 6, 104, 24);
     captureButton.setBounds (pr.getRight() - 88, progArea.getY() + 6, 88, 24);
-    const int padTop = progArea.getY() + 74;
+    const int padTop = progArea.getY() + 86;
     const int ww = pr.getWidth() / 7;
     static const int whiteSlots[] = { 0, 2, 4, 5, 7, 9, 11 };
     for (int i = 0; i < 7; ++i)
-        pads[whiteSlots[i]]->setBounds (pr.getX() + i * ww, padTop + 36, ww, 78);
+        pads[whiteSlots[i]]->setBounds (pr.getX() + i * ww, padTop + 30, ww, 70);
     static const int blackSlots[] = { 1, 3, 6, 8, 10 };
     static const int after[] = { 0, 1, 3, 4, 5 };   // sits between white i and i+1
     for (int i = 0; i < 5; ++i)
     {
         const int cx = pr.getX() + (after[i] + 1) * ww;
-        pads[blackSlots[i]]->setBounds (cx - ww * 4 / 10, padTop, ww * 8 / 10, 54);
+        pads[blackSlots[i]]->setBounds (cx - ww * 4 / 10, padTop, ww * 8 / 10, 46);
     }
-    auto kr = juce::Rectangle<int> (pr.getX(), progArea.getY() + 196, pr.getWidth(), 60);
+    auto kr = juce::Rectangle<int> (pr.getX(), progArea.getY() + 198, pr.getWidth(), 60);
+    auto combos = kr.removeFromRight (150);
     const int kw = kr.getWidth() / 3;
     for (auto* k : { &complexity, &density, &spice })
-        k->setBounds (kr.removeFromLeft (kw).withSizeKeepingCentre (54, 54));
+        k->setBounds (kr.removeFromLeft (kw).withSizeKeepingCentre (48, 48).translated (0, -4));
+    changesBox.setBounds (combos.getX(), combos.getY() + 10, combos.getWidth(), 22);
+    voicingBox.setBounds (combos.getX(), combos.getY() + 46, combos.getWidth(), 22);
 
     // GROOVE
     auto gr = grooveArea.reduced (14, 0);
@@ -1221,15 +1352,15 @@ void HooksmithPanel::renderBackground()
 
     title (colorArea, "COLOR", "retro tape colour + classic samplers, per part");
     title (partArea, "PART TONE", "per part");
-    knobLabel (pStrum, "STRUM"); knobLabel (pHp, "HIGH PASS"); knobLabel (pLp, "LOW PASS"); knobLabel (pGain, "GAIN  (BUS COMP)");
+    caption (changesBox, "CHANGES", -13.0f);
+    caption (voicingBox, "VOICING", -13.0f);
+    knobLabel (pStrum, "STRUM"); knobLabel (pHp, "HIGH PASS"); knobLabel (pLp, "LOW PASS"); knobLabel (pRes, "RES"); knobLabel (pGain, "GAIN  (BUS COMP)");
     {
-        // MELODY group: divider + captions
+        // divider before the part's own section (MELODY / 808)
         g.setColour (juce::Colours::black.withAlpha (0.55f));
         g.fillRect ((float) melGroup.getX() - 10.0f, (float) melGroup.getY() - 6.0f, 1.5f, (float) melGroup.getHeight() + 10.0f);
         g.setColour (juce::Colours::white.withAlpha (0.06f));
         g.fillRect ((float) melGroup.getX() - 8.5f, (float) melGroup.getY() - 6.0f, 1.0f, (float) melGroup.getHeight() + 10.0f);
-        caption (melHarm, "MELODY HARMONY", -16.0f);
-        caption (melFlavor, "MELODY FLAVOR", -16.0f);
     }
     knobLabel (drive, "DRIVE"); knobLabel (wobble, "WOBBLE"); knobLabel (noise, "NOISE");
     knobLabel (crush, "CRUSH"); knobLabel (tone, "TONE"); knobLabel (colMix, "MIX");
@@ -1258,6 +1389,53 @@ void HooksmithPanel::renderBackground()
 void HooksmithPanel::paint (juce::Graphics& g)
 {
     g.drawImage (background, getLocalBounds().toFloat());
+
+    // PART TONE: the selected part's own section
+    {
+        auto cap = [&] (const juce::Component& c, const juce::String& t, float dy)
+        {
+            g.setFont (Fonts::label (10.5f));
+            g.setColour (Col::dim.brighter (0.4f));
+            g.drawText (t, c.getBounds().toFloat().translated (0.0f, dy).withHeight (12.0f).expanded (20.0f, 0.0f), juce::Justification::centred);
+        };
+        if (partLane == hs::MelodyLane)
+        {
+            cap (melHarm, "MELODY HARMONY", -16.0f);
+            cap (melFlavor, "MELODY FLAVOR", -16.0f);
+        }
+        else if (partLane == hs::BassLane)
+        {
+            cap (wobRate, "808  WOBBLE", -16.0f);
+            for (auto* k : { &wobDepth, &stutterK, &glideK, &driveK })
+            {
+                const char* t = k == &wobDepth ? "DEPTH" : k == &stutterK ? "STUTTER" : k == &glideK ? "GLIDE" : "DRIVE";
+                cap (*k, t, (float) k->getHeight() + 1.0f);
+            }
+        }
+        else
+        {
+            g.setFont (Fonts::label (11.0f));
+            g.setColour (Col::dim.withAlpha (0.8f));
+            g.drawFittedText ("MELODY tab: harmony + flavor.   BASS tab: 808 wobble, stutter, glide, drive.",
+                              melGroup.withTrimmedTop (10), juce::Justification::centred, 2);
+        }
+    }
+
+    // PROGRESSOR readout: the progression as Roman numerals
+    {
+        const auto& pat = proc.getPattern();
+        juce::String romans;
+        juce::String last;
+        for (auto& ch : pat.chords)
+        {
+            const juce::String r (ch.roman);
+            if (r != last || romans.isEmpty()) romans << (romans.isEmpty() ? "" : "  ") << r;
+            last = r;
+        }
+        g.setFont (Fonts::mono (11.0f));
+        g.setColour (Col::amber.withAlpha (0.85f));
+        g.drawFittedText (romans.isEmpty() ? juce::String ("-") : romans, progReadout, juce::Justification::centredLeft, 1, 0.6f);
+    }
 
     // Lane colour stripes
     for (int l = 0; l < hs::kNumLanes; ++l)
@@ -1326,6 +1504,7 @@ void HooksmithPanel::timerCallback()
         shownVersion = proc.getPatternVersion();
         for (auto* p : pads) p->repaint();
         screen.repaint();
+        repaint (progReadout);
     }
 
     screen.setPlayPos (proc.displayPos.load());
