@@ -458,6 +458,34 @@ std::vector<Genre> build()
             { "Romantic Minor",      "i9 bVImaj7 bIII bVII",            true,  H },
         } });
 
+    // -------------------------------------------------------------- COUNTRY
+    g.push_back ({ "Country", 100, 0.12f, 0.06f, 0, Voicing::Close,
+        { { 1.0, 0.7 }, { 0.5, 0.3 } },
+        { "x---------------", "x-------x-------", "x---x---x---x---", "x.x.x.x.x.x.x.x.", "x--x--x-x--x--x-", "x---x-x-x---x-x-" },
+        { 4.5f, 0.3f, false, 0.25f, 0.3f, 0.55f, 0.05f },
+        BassStyle::Pattern,
+        { "x-------5-------", "x---5---x---5---", "x---5---o---5---", "x-------5---5-x-" },
+        true,
+        { "X.......X.......", "....X.......X...", _, "x.x.x.x.x.x.x.x.", _, _, _, _ },
+        { "X.......X.x.....", "....X.......X.gx", _, "x.x.x.x.x.x.x.x.", "..............x.", _, _, _ },
+        false, Fill::Toms,
+        {
+            { "Three Chord Truth",   "I IV V I",         false, V | H },
+            { "Truck Anthem",        "I V vi IV",        false, H },
+            { "Back Porch",          "I IV I V",         false, V },
+            { "Honky Tonk Heart",    "I vi IV V",        false, V | H },
+            { "Small Town Lift",     "IV I V vi",        false, H | P },
+            { "Two-Lane",            "I iii IV V",       false, P },
+            { "Heartache Highway",   "vi IV I V",        false, H | V },
+            { "Walkdown",            "I V/VII vi IV",    false, V | H },
+            { "Gospel Turn",         "I I7 IV iv",       false, B | P },
+            { "Outlaw",              "I bVII IV I",      false, V | B },
+            { "Chorus Lift",         "IV V I I",         false, P },
+            { "Sunday Drive",        "Iadd9 IVadd9 vi7 Vsus4", false, H },
+            { "Murder Ballad",       "i bVII bVI V",     true,  V | H },
+            { "Dark Hollow",         "i iv bVII bIII",   true,  V },
+        } });
+
     return g;
 }
 } // namespace

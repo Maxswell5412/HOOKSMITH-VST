@@ -53,7 +53,7 @@ const std::vector<int>& HooksmithProcessor::patchList (int lane)
 static int autoPatch (int genre, int lane)
 {
     using P = SketchSynth;
-    static const int table[17][3] = {
+    static const int table[18][3] = {
         { P::Piano,    P::Pluck,      P::SubBass },   // Pop
         { P::Pluck,    P::SawLead,    P::PluckBass }, // Dance Pop
         { P::Organ,    P::SquareLead, P::SawBass },   // Pop Rock
@@ -71,9 +71,10 @@ static int autoPatch (int genre, int lane)
         { P::Organ,    P::Piano,      P::SubBass },   // Gospel
         { P::Pluck,    P::FMBell,     P::Bass808 },   // Afrobeats
         { P::Pluck,    P::SquareLead, P::SubBass },   // Reggaeton
+        { P::Piano,    P::Pluck,      P::PluckBass }, // Country
     };
     if (lane == 3) return P::Kit;
-    return table[juce::jlimit (0, 16, genre)][juce::jlimit (0, 2, lane)];
+    return table[juce::jlimit (0, 17, genre)][juce::jlimit (0, 2, lane)];
 }
 
 int HooksmithProcessor::builtInPatch (int lane) const

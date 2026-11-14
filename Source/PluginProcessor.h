@@ -86,7 +86,7 @@ public:
 
     // Memory slots: keep up to 4 versions of the melody and the bass line you like
     static constexpr int kSlots = 4;
-    static bool laneHasSlots (int lane)  { return lane == hs::MelodyLane || lane == hs::BassLane; }
+    static bool laneHasSlots (int lane)  { return lane == hs::ChordsLane || lane == hs::MelodyLane || lane == hs::BassLane; }
     bool slotUsed (int lane, int slot) const;
     int  activeSlot (int lane) const;          // slot that matches what's playing, or -1
     void storeSlot (int lane, int slot);

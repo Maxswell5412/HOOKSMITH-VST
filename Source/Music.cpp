@@ -909,13 +909,13 @@ static const char* kEndCells[] = { "x-------........", "x---x-----------", "x-x-
 // how pentatonic the hooks are, and how often a soul run leads into the last note
 static float pentaBias (int genre)
 {
-    static const float b[] = { 0.5f, 0.5f, 0.6f, 0.0f, 0.2f, 0.5f, 0.5f, 0.3f, 0.75f, 0.7f, 0.6f, 0.7f, 0.6f, 0.6f, 0.7f, 0.8f, 0.6f };
-    return b[std::clamp (genre, 0, 16)];
+    static const float b[] = { 0.5f, 0.5f, 0.6f, 0.0f, 0.2f, 0.5f, 0.5f, 0.3f, 0.75f, 0.7f, 0.6f, 0.7f, 0.6f, 0.6f, 0.7f, 0.8f, 0.6f, 0.8f };
+    return b[std::clamp (genre, 0, 17)];
 }
 static float runChance (int genre)
 {
-    static const float b[] = { 0.15f, 0.08f, 0.05f, 0.1f, 0.05f, 0.06f, 0.1f, 0.05f, 0.1f, 0.08f, 0.05f, 0.45f, 0.4f, 0.2f, 0.55f, 0.15f, 0.12f };
-    return b[std::clamp (genre, 0, 16)];
+    static const float b[] = { 0.15f, 0.08f, 0.05f, 0.1f, 0.05f, 0.06f, 0.1f, 0.05f, 0.1f, 0.08f, 0.05f, 0.45f, 0.4f, 0.2f, 0.55f, 0.15f, 0.12f, 0.2f };
+    return b[std::clamp (genre, 0, 17)];
 }
 
 static int cellNotes (const char* c) { int n = 0; for (int i = 0; i < 16; ++i) n += c[i] == 'x'; return n; }
@@ -928,6 +928,7 @@ static std::vector<int> preferredFamilies (const Melody& m, int genre)
     if (genre == 11 || genre == 12 || genre == 14 || genre == 13) return { 2, 0, 1 };
     if (genre == 3 || genre == 4) return { 0, 1 };
     if (genre == 15 || genre == 16) return { 2, 4, 1 };
+    if (genre == 17) return { 1, 0, 2 };   // country: straight, singable
     return m.syncopation > 0.5f ? std::vector<int> { 2, 1, 0 } : std::vector<int> { 1, 0, 2 };
 }
 

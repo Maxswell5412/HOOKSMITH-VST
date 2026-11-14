@@ -339,7 +339,18 @@ int main()
         const auto back = melody();
         CHECK (back.size() == m1.size() && std::equal (m1.begin(), m1.end(), back.begin(), [] (auto& a, auto& b) { return a.start == b.start && a.pitch == b.pitch; }), "slot 1 brings the melody back exactly");
         CHECK (p.activeSlot (hs::MelodyLane) == 0, "slot 1 shows as playing");
-        CHECK (! p.slotUsed (hs::ChordsLane, 0) && ! HooksmithProcessor::laneHasSlots (hs::DrumsLane), "slots only on melody and bass");
+        CHECK (! p.slotUsed (hs::ChordsLane, 0) && HooksmithProcessor::laneHasSlots (hs::ChordsLane) && ! HooksmithProcessor::laneHasSlots (hs::DrumsLane), "slots on chords, melody and bass");
+        {
+            // chords: save a progression, roll a new one, bring the first back exactly
+            auto chordNames = [&p] { std::string n; for (auto& c : p.getPattern().chords) n += c.name + " "; return n; };
+            const auto c1 = chordNames();
+            p.storeSlot (hs::ChordsLane, 0);
+            std::string c2 = c1;
+            for (int i = 0; i < 6 && c2 == c1; ++i) { p.rerollLane (hs::ChordsLane); c2 = chordNames(); }
+            CHECK (c2 != c1, "new chords differ");
+            p.recallSlot (hs::ChordsLane, 0);
+            CHECK (chordNames() == c1 && p.activeSlot (hs::ChordsLane) == 0, "chord slot 1 brings the progression back (%s)", chordNames().c_str());
+        }
         juce::MemoryBlock mb; p.getStateInformation (mb);
         HooksmithProcessor q; q.setPlayConfigDetails (0, 2, 48000.0, 512); q.prepareToPlay (48000.0, 512);
         q.setStateInformation (mb.getData(), (int) mb.getSize());

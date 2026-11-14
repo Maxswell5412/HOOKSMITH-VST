@@ -49,6 +49,9 @@ Needs CMake 3.22+ and a C++17 compiler (Xcode on Mac, Visual Studio 2022 on Wind
 
 ---
 
+## New in v0.4.1
+- **Country** genre: I-IV-V, the vi heartache, bass walkdowns, boom-chick bass and a train beat.
+
 ## New in v0.4: better chords and melodies
 - **New progression bank** in the style of classic R&B, soul, house and West Coast hip hop:
   - two-chord minor vamps and falling maj7 chains
