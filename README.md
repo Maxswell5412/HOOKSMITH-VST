@@ -49,6 +49,13 @@ Needs CMake 3.22+ and a C++17 compiler (Xcode on Mac, Visual Studio 2022 on Wind
 
 ---
 
+## New in v0.7: LOAD EXAMPLE
+Give HOOKSMITH your own idea, as a **MIDI file or an audio loop** (WAV, AIFF, FLAC, MP3):
+- **BASS / MELODY:** HOOKSMITH listens (pitch tracking that works down to 808s), then the part **copies** it, moved into your song's key. Press that part's **GENERATE** for **new versions** on the same rhythm and shape, fitted to your chords.
+- **CHORDS:** the chords in the file (or heard in the audio loop) become your progression.
+- Click **LOAD EXAMPLE** in the PART TONE row (it loads into the selected tab), or just **drag a file onto a part**. The display shows what each part is copying. Examples are saved with your project.
+- Tip: a BPM and key in the file name ("Dark 808 140bpm F#m.wav") helps it lock to the loop.
+
 ## New in v0.6
 - **Creative melodies:** every GENERATE writes the 8 bars like a story, using the tricks songwriters use: a sequence (the idea again, higher), an inversion, a fragment repeated, a displaced echo, and a climax that reaches a new peak note and holds it.
 - **Smart harmony (new default):** a backing-singer voice under the hook's strong and long notes, three voices on the climax, and only the ends of phrases in verses. Turn it off or pick 3rds, 6ths, octaves and more under MELODY HARMONY.

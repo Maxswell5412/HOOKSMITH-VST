@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(Hooksmith VERSION 0.6.0)
+project(Hooksmith VERSION 0.7.0)
 
 # ---------------------------------------------------------------------------
 # JUCE: use a local copy if you point JUCE_DIR at one, otherwise download it.
@@ -57,6 +57,7 @@ juce_add_binary_data(HooksmithFonts SOURCES
 target_sources(Hooksmith PRIVATE
     Source/Music.cpp
     Source/Genres.cpp
+    Source/Examples.cpp
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
     Source/UIKit.cpp)
@@ -81,7 +82,7 @@ target_link_libraries(Hooksmith
         juce::juce_recommended_warning_flags)
 
 # Music engine tests (no JUCE): cmake --build build --target HooksmithEngineTests
-add_executable(HooksmithEngineTests EXCLUDE_FROM_ALL Tests/EngineTests.cpp Source/Music.cpp Source/Genres.cpp)
+add_executable(HooksmithEngineTests EXCLUDE_FROM_ALL Tests/EngineTests.cpp Source/Music.cpp Source/Genres.cpp Source/Examples.cpp)
 target_compile_features(HooksmithEngineTests PRIVATE cxx_std_17)
 
 # Plugin tests (drives the processor like a DAW): cmake --build build --target HooksmithPluginTests

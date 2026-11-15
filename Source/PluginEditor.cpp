@@ -862,6 +862,23 @@ HooksmithPanel::HooksmithPanel (HooksmithProcessor& p)
     addAndMakeVisible (melHarm); addAndMakeVisible (melFlavor);
     melHarmA = std::make_unique<CA> (proc.apvts, "melHarm", melHarm);
     melFlavorA = std::make_unique<CA> (proc.apvts, "melFlavor", melFlavor);
+    exampleButton.getProperties().set ("accent", true);
+    exampleButton.setTooltip ("LOAD EXAMPLE: a MIDI file or an audio loop (WAV, AIFF, MP3) for this part. MELODY / BASS copy it (in your key), press the part's GENERATE for new versions on its rhythm. CHORDS: it becomes your progression. You can also drag a file onto a part");
+    exampleClear.setTooltip ("Remove this part's example");
+    exampleButton.onClick = [this]
+    {
+        exampleChooser = std::make_unique<juce::FileChooser> ("Load an example (MIDI or audio)", juce::File::getSpecialLocation (juce::File::userHomeDirectory),
+                                                              "*.mid;*.midi;*.wav;*.aif;*.aiff;*.flac;*.mp3;*.ogg;*.m4a");
+        juce::Component::SafePointer<HooksmithPanel> safe (this);
+        const int lane = partLane;
+        exampleChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [safe, lane] (const juce::FileChooser& fc)
+        {
+            if (safe != nullptr && fc.getResult().existsAsFile()) safe->loadExampleInto (lane, fc.getResult());
+        });
+    };
+    exampleClear.onClick = [this] { proc.clearExample (partLane); setStatus ("EXAMPLE REMOVED"); repaint(); };
+    addAndMakeVisible (exampleButton);
+    addAndMakeVisible (exampleClear);
     selectPartLane (hs::BassLane);
 
     // TAPE STOP
@@ -945,6 +962,8 @@ void HooksmithPanel::selectPartLane (int lane)
     pLpA    = std::make_unique<SA> (proc.apvts, id ("lp"), pLp);
     pGainA  = std::make_unique<SA> (proc.apvts, id ("gain"), pGain);
     pStrum.setEnabled (partLane != hs::DrumsLane);
+    exampleButton.setEnabled (partLane != hs::DrumsLane);
+    exampleClear.setEnabled (partLane != hs::DrumsLane);
     const bool mel = partLane == hs::MelodyLane, bass = partLane == hs::BassLane;
     melHarm.setVisible (mel); melFlavor.setVisible (mel);
     for (juce::Component* c : { (juce::Component*) &wobRate, (juce::Component*) &wobDepth, (juce::Component*) &stutterK,
@@ -986,15 +1005,38 @@ void HooksmithPanel::importFiles (const juce::Array<juce::File>& files)
 
 bool HooksmithPanel::isInterestedInFileDrag (const juce::StringArray& files)
 {
-    for (auto& f : files) if (juce::File (f).hasFileExtension ("mid;midi")) return true;
+    for (auto& f : files) if (HooksmithProcessor::isExampleFile (juce::File (f))) return true;
     return false;
 }
 
-void HooksmithPanel::filesDropped (const juce::StringArray& files, int, int)
+void HooksmithPanel::loadExampleInto (int lane, const juce::File& f)
 {
-    juce::Array<juce::File> fs;
-    for (auto& f : files) fs.add (juce::File (f));
-    importFiles (fs);
+    setStatus ("LISTENING TO " + f.getFileNameWithoutExtension().toUpperCase() + "...");
+    const auto err = proc.loadExample (lane, f);
+    const juce::String part = juce::String (hs::laneNames()[(size_t) juce::jlimit (0, hs::kNumLanes - 1, lane)]).toUpperCase();
+    setStatus (err.isEmpty() ? part + " EXAMPLE: " + f.getFileNameWithoutExtension().toUpperCase() : err.toUpperCase());
+    if (err.isEmpty() && lane != partLane) selectPartLane (lane);
+    refreshProgressions();
+    repaint();
+}
+
+void HooksmithPanel::filesDropped (const juce::StringArray& files, int x, int y)
+{
+    // dropped on a part: that part's example. Elsewhere: MIDI = chord imports, audio = the selected tab's part
+    const juce::Point<int> at (x, y);
+    for (int l = 0; l < hs::DrumsLane; ++l)
+        if (laneAreas[l].contains (at))
+        {
+            for (auto& f : files) if (HooksmithProcessor::isExampleFile (juce::File (f))) { loadExampleInto (l, juce::File (f)); return; }
+        }
+    juce::Array<juce::File> midi;
+    for (auto& f : files)
+    {
+        const juce::File file (f);
+        if (file.hasFileExtension ("mid;midi")) midi.add (file);
+        else if (HooksmithProcessor::isExampleFile (file)) { loadExampleInto (partLane == hs::DrumsLane ? hs::BassLane : partLane, file); return; }
+    }
+    if (! midi.isEmpty()) importFiles (midi);
 }
 
 void HooksmithPanel::mouseDown (const juce::MouseEvent& e)
@@ -1090,6 +1132,12 @@ void HooksmithPanel::resized()
     {
         auto tabs = juce::Rectangle<int> (partArea.getX() + 216, partArea.getY() + 6, 4 * 92, 24);
         for (auto* t : partTabs) { t->setBounds (tabs.removeFromLeft (88)); tabs.removeFromLeft (4); }
+        auto exRow = juce::Rectangle<int> (partArea.getX() + 216 + 4 * 92 + 16, partArea.getY() + 6, partArea.getRight() - 14 - (partArea.getX() + 216 + 4 * 92 + 16), 24);
+        exampleButton.setBounds (exRow.removeFromLeft (128));
+        exampleClear.setBounds (exRow.removeFromRight (28));
+        exRow.removeFromRight (4);
+        exRow.removeFromLeft (6);
+        exampleLcd = exRow;
         auto c = partArea.reduced (14, 0).withTrimmedTop (36).withHeight (48);
         auto left = c.removeFromLeft (520);
         const int kw = left.getWidth() / 5;
@@ -1389,6 +1437,21 @@ void HooksmithPanel::renderBackground()
 void HooksmithPanel::paint (juce::Graphics& g)
 {
     g.drawImage (background, getLocalBounds().toFloat());
+
+    // LOAD EXAMPLE: what this part is copying
+    {
+        auto r = exampleLcd.toFloat();
+        g.setColour (Col::lcd);
+        g.fillRoundedRectangle (r, 3.0f);
+        g.setColour (juce::Colours::black.withAlpha (0.6f));
+        g.drawRoundedRectangle (r, 3.0f, 1.0f);
+        const auto nm = proc.exampleName (partLane);
+        g.setFont (Fonts::mono (11.0f));
+        g.setColour (nm.isEmpty() ? Col::dim : Col::green.withAlpha (0.9f));
+        g.drawFittedText (partLane == hs::DrumsLane ? juce::String ("examples: chords, melody, bass")
+                          : nm.isEmpty() ? juce::String ("no example - load or drop a MIDI / WAV") : nm,
+                          exampleLcd.reduced (8, 0), juce::Justification::centredLeft, 1, 0.7f);
+    }
 
     // PART TONE: the selected part's own section
     {

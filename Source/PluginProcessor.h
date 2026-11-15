@@ -7,6 +7,7 @@
 #include "SketchSynth.h"
 #include "ColorFX.h"
 #include "PartTone.h"
+#include "Examples.h"
 
 // -----------------------------------------------------------------------------
 // HOOKSMITH — song idea generator with the PROGRESSOR chord engine.
@@ -108,6 +109,13 @@ public:
     int getNumImports() const { return (int) imports.size(); }
     int getActiveImport() const { return activeImport; }
 
+    // ---- LOAD EXAMPLE: your own MIDI or audio (WAV/AIFF/MP3...) for a part --------------
+    // Chords: becomes an imported progression. Melody / bass: the part copies it; its GENERATE writes new versions.
+    juce::String loadExample (int lane, const juce::File& file);   // "" = ok, else what went wrong
+    void clearExample (int lane);
+    juce::String exampleName (int lane) const;
+    static bool isExampleFile (const juce::File& f) { return f.hasFileExtension ("mid;midi;wav;aif;aiff;flac;mp3;ogg;m4a"); }
+
     // ---- CAPTURE: record the chords a chord plugin (Cthulhu) plays on every key -----
     juce::String captureFromChordsPlugin();   // returns a status line
     void clearCapture();
@@ -192,6 +200,8 @@ private:
 
     std::vector<std::shared_ptr<hs::ImportedProgression>> imports;   // saved with the project
     int activeImport = -1;
+    std::array<std::shared_ptr<hs::PartExample>, hs::kNumLanes> examples {};
+    bool readMidiNotes (const juce::File& file, std::vector<hs::NoteEv>& notes, double& lengthBeats, juce::String& error) const;
     std::array<std::vector<int>, 128> captured;   // per key, saved with the project
 
     // Message-thread copies for the UI

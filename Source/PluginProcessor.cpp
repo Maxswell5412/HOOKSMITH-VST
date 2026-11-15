@@ -300,6 +300,7 @@ hs::Settings HooksmithProcessor::currentSettings() const
     if (s.progression > (int) progressionNames (s.genre).size()) s.progression = 0;
     if (juce::isPositiveAndBelow (activeImport, (int) imports.size()))
         s.imported = imports[(size_t) activeImport];   // an imported MIDI file replaces the PROGRESSOR
+    for (int l = 0; l < kNumLanes; ++l) s.examples[(size_t) l] = examples[(size_t) l];
     s.complexity = pComplexity->load();
     s.density = pDensity->load();
     s.groove = pGroove->load();
@@ -340,7 +341,7 @@ bool HooksmithProcessor::settingsChanged (const Settings& s) const
         || s.feel != o.feel || std::abs (s.feelAmount - o.feelAmount) > 1.0e-4f || std::abs (s.pocket - o.pocket) > 1.0e-4f
         || std::abs (s.dynamics - o.dynamics) > 1.0e-4f || std::abs (s.strum - o.strum) > 1.0e-4f
         || s.harmonySeed != o.harmonySeed || s.melodySeed != o.melodySeed
-        || s.bassSeed != o.bassSeed || s.drumSeed != o.drumSeed || s.imported != o.imported
+        || s.bassSeed != o.bassSeed || s.drumSeed != o.drumSeed || s.imported != o.imported || s.examples != o.examples
         || s.variant != o.variant || s.noteLength != o.noteLength
         || s.machine != o.machine || s.machineFlavor != o.machineFlavor
         || s.machineExaggerate != o.machineExaggerate || s.machineFunk != o.machineFunk
@@ -481,7 +482,9 @@ void HooksmithProcessor::nextTake (const std::array<bool, kNumLanes>& lanes)
         if (lanes[(size_t) l])
         {
             // chords: every press is a brand-new progression (a "close take" of chords sounded like the same thing)
-            takes[(size_t) l] = l == ChordsLane ? 0 : (takes[(size_t) l] + 1) % 3;
+            // a part with a loaded example: every press is a new version of it
+            const bool fresh0 = l == ChordsLane || (l < kNumLanes && examples[(size_t) l] != nullptr);
+            takes[(size_t) l] = fresh0 ? 0 : (takes[(size_t) l] + 1) % 3;
             fresh[(size_t) l] = takes[(size_t) l] == 0;
             anyNew = anyNew || fresh[(size_t) l];
         }
@@ -651,6 +654,130 @@ int HooksmithProcessor::importMidiFile (const juce::File& file, juce::String& er
     if (imports.size() >= 40) imports.erase (imports.begin());
     imports.push_back (imp);
     return (int) imports.size() - 1;
+}
+
+bool HooksmithProcessor::readMidiNotes (const juce::File& file, std::vector<NoteEv>& notes, double& lengthBeats, juce::String& error) const
+{
+    juce::FileInputStream in (file);
+    juce::MidiFile mf;
+    if (! in.openedOk() || ! mf.readFrom (in)) { error = "Couldn't read " + file.getFileName(); return false; }
+    const int tpq = mf.getTimeFormat();
+    if (tpq <= 0) { error = "Unsupported MIDI timing in " + file.getFileName(); return false; }
+    double lastTick = 0;
+    for (int t = 0; t < mf.getNumTracks(); ++t)
+    {
+        juce::MidiMessageSequence seq (*mf.getTrack (t));
+        seq.updateMatchedPairs();
+        for (auto* e : seq)
+        {
+            if (! e->message.isNoteOn() || e->message.getChannel() == 10) continue;
+            const double on = e->message.getTimeStamp();
+            const double off = e->noteOffObject != nullptr ? e->noteOffObject->message.getTimeStamp() : on + tpq;
+            lastTick = juce::jmax (lastTick, off);
+            notes.push_back ({ on / tpq, juce::jmax (0.05, (off - on) / tpq), e->message.getNoteNumber(), e->message.getVelocity() });
+        }
+    }
+    if (notes.empty()) { error = file.getFileName() + " has no notes"; return false; }
+    lengthBeats = juce::jmax (4.0, std::ceil (lastTick / tpq / 4.0 - 0.01) * 4.0);   // whole bars
+    return true;
+}
+
+juce::String HooksmithProcessor::loadExample (int lane, const juce::File& file)
+{
+    if (lane < 0 || lane >= DrumsLane) return "Examples work on CHORDS, MELODY and BASS";
+    if (! file.existsAsFile()) return "Couldn't find " + file.getFileName();
+    const auto name = file.getFileNameWithoutExtension().toStdString();
+    std::vector<NoteEv> notes;
+    double lengthBeats = 16;
+    juce::String error;
+    const bool midi = file.hasFileExtension ("mid;midi");
+
+    if (midi)
+    {
+        if (lane == ChordsLane)
+        {
+            const int idx = importMidiFile (file, error);
+            if (idx < 0) return error;
+            selectImport (idx);
+            return {};
+        }
+        if (! readMidiNotes (file, notes, lengthBeats, error)) return error;
+        // one line: the lowest note for a bass, the top note for a melody, wherever notes overlap
+        std::sort (notes.begin(), notes.end(), [] (const NoteEv& a, const NoteEv& b) { return a.start < b.start; });
+        std::vector<NoteEv> line;
+        for (auto& n : notes)
+        {
+            if (! line.empty() && std::abs (line.back().start - n.start) < 0.02)
+            {
+                if ((lane == BassLane) == (n.pitch < line.back().pitch)) line.back() = n;
+                continue;
+            }
+            line.push_back (n);
+        }
+        for (size_t i = 0; i + 1 < line.size(); ++i) line[i].len = juce::jmin (line[i].len, line[i + 1].start - line[i].start);
+        notes.swap (line);
+    }
+    else
+    {
+        juce::AudioFormatManager fm;
+        fm.registerBasicFormats();
+        std::unique_ptr<juce::AudioFormatReader> reader (fm.createReaderFor (file));
+        if (reader == nullptr) return "Couldn't read the audio in " + file.getFileName();
+        const double sr = reader->sampleRate;
+        const int len = (int) juce::jmin ((juce::int64) (sr * 90.0), reader->lengthInSamples);   // the first 90 seconds
+        if (len < (int) (sr * 0.25)) return file.getFileName() + " is too short";
+        juce::AudioBuffer<float> buf ((int) juce::jmax (1u, reader->numChannels), len);
+        reader->read (&buf, 0, len, 0, true, true);
+        std::vector<float> mono ((size_t) len, 0.0f);
+        for (int ch = 0; ch < buf.getNumChannels(); ++ch)
+            juce::FloatVectorOperations::addWithMultiply (mono.data(), buf.getReadPointer (ch), 1.0f / (float) buf.getNumChannels(), len);
+        double hint = bpmFromName (name);
+        if (hint <= 0) hint = displayBpm.load();
+        const double bpm = settleTempo (len / sr, hint, lengthBeats);
+        notes = lane == ChordsLane ? chordTrack (mono.data(), len, sr, bpm)
+                                   : pitchTrack (mono.data(), len, sr, bpm, lane == BassLane);
+        if (notes.empty()) return "Couldn't hear clear " + juce::String (lane == ChordsLane ? "chords" : "notes") + " in " + file.getFileName();
+        if (lane == ChordsLane)
+        {
+            int pc = -1; bool mi = false;
+            const bool hasKey = keyFromName (name, pc, mi);
+            auto imp = analyseImport (notes, lengthBeats, name + " (audio)", hasKey ? pc : -1, hasKey ? (mi ? 1 : 0) : -1);
+            if (imp->spans.empty()) return "Couldn't find chords in " + file.getFileName();
+            if (imports.size() >= 40) imports.erase (imports.begin());
+            imports.push_back (imp);
+            selectImport ((int) imports.size() - 1);
+            return {};
+        }
+    }
+
+    auto ex = std::make_shared<PartExample>();
+    ex->name = name;
+    ex->notes = notes;
+    ex->lengthBeats = lengthBeats;
+    int pc = -1; bool mi = false;
+    if (keyFromName (name, pc, mi)) { ex->tonicPc = pc; ex->minor = mi; }
+    else ex->tonicPc = estimateKey (notes, ex->minor);
+    ex->copySeed = seeds[(size_t) lane];          // plays as a copy until you press the part's GENERATE
+    examples[(size_t) lane] = ex;
+    rebuild();
+    return {};
+}
+
+void HooksmithProcessor::clearExample (int lane)
+{
+    if (lane == ChordsLane) { selectImport (-1); return; }
+    if (lane < 0 || lane >= kNumLanes) return;
+    examples[(size_t) lane].reset();
+    rebuild();
+}
+
+juce::String HooksmithProcessor::exampleName (int lane) const
+{
+    if (lane == ChordsLane)
+        return juce::isPositiveAndBelow (activeImport, (int) imports.size()) ? juce::String (imports[(size_t) activeImport]->name) : juce::String();
+    if (lane < 0 || lane >= kNumLanes || examples[(size_t) lane] == nullptr) return {};
+    const auto& ex = *examples[(size_t) lane];
+    return juce::String (ex.name) + (seeds[(size_t) lane] == ex.copySeed ? "  (copy)" : "  (new version)");
 }
 
 bool HooksmithProcessor::hasCapture() const
@@ -1441,6 +1568,20 @@ void HooksmithProcessor::getStateInformation (juce::MemoryBlock& destData)
 
     root.setAttribute ("uiScale", (double) uiScale);
     root.setAttribute ("activeImport", activeImport);
+    for (int l = 0; l < kNumLanes; ++l)
+        if (auto& ex = examples[(size_t) l])
+        {
+            auto* x = root.createNewChildElement ("Example");
+            x->setAttribute ("lane", l);
+            x->setAttribute ("name", juce::String (ex->name));
+            x->setAttribute ("length", ex->lengthBeats);
+            x->setAttribute ("tonic", ex->tonicPc);
+            x->setAttribute ("minor", ex->minor);
+            x->setAttribute ("copySeed", juce::String ((juce::int64) ex->copySeed));
+            juce::String t;
+            for (auto& n : ex->notes) t << juce::String (n.start, 4) << "," << juce::String (n.len, 4) << "," << n.pitch << "," << n.vel << ";";
+            x->setAttribute ("notes", t);
+        }
     if (hasCapture())
     {
         juce::String txt;
@@ -1502,6 +1643,24 @@ void HooksmithProcessor::setStateInformation (const void* data, int sizeInBytes)
         apvts.replaceState (juce::ValueTree::fromXml (*params));
     uiScale = (float) root->getDoubleAttribute ("uiScale", -1.0);
     activeImport = root->getIntAttribute ("activeImport", -1);
+    for (auto& ex : examples) ex.reset();
+    for (auto* x : root->getChildWithTagNameIterator ("Example"))
+    {
+        const int l = x->getIntAttribute ("lane", -1);
+        if (l < 0 || l >= kNumLanes) continue;
+        auto ex = std::make_shared<PartExample>();
+        ex->name = x->getStringAttribute ("name").toStdString();
+        ex->lengthBeats = x->getDoubleAttribute ("length", 16.0);
+        ex->tonicPc = x->getIntAttribute ("tonic", 0);
+        ex->minor = x->getBoolAttribute ("minor", false);
+        ex->copySeed = (juce::uint32) x->getStringAttribute ("copySeed").getLargeIntValue();
+        for (auto& tok : juce::StringArray::fromTokens (x->getStringAttribute ("notes"), ";", ""))
+        {
+            auto f = juce::StringArray::fromTokens (tok, ",", "");
+            if (f.size() == 4) ex->notes.push_back ({ f[0].getDoubleValue(), f[1].getDoubleValue(), f[2].getIntValue(), f[3].getIntValue() });
+        }
+        if (! ex->notes.empty()) examples[(size_t) l] = ex;
+    }
     for (auto& c : captured) c.clear();
     for (auto& tok : juce::StringArray::fromTokens (root->getStringAttribute ("captured"), ";", ""))
     {

@@ -2108,6 +2108,92 @@ void applyGroove (Ctx& c)
 
 // ---------------------------------------------------------------- bass octave jumps
 // Now and then one bass note jumps an octave up (or down) - the bounce real bass lines have.
+// LOAD EXAMPLE: the part plays your example (copy), or a new version on its rhythm and contour
+void applyExamples (Ctx& c)
+{
+    for (int l : { (int) MelodyLane, (int) BassLane })
+    {
+        const auto& ex = c.s.examples[(size_t) l];
+        if (ex == nullptr || ex->notes.empty()) continue;
+        const uint32_t seed = l == MelodyLane ? c.s.melodySeed : c.s.bassSeed;
+        const bool copy = seed == ex->copySeed;
+        int shift = wrap12 (c.keyPc - ex->tonicPc);          // into the song's key, the shortest way
+        if (shift > 6) shift -= 12;
+        const double L = std::max (1.0, ex->lengthBeats);
+
+        std::vector<NoteEv> src;                            // the example, repeated across the pattern
+        for (double off = 0; off < c.length - 1.0e-6; off += L)
+            for (auto n : ex->notes)
+            {
+                if (n.start >= L - 1.0e-6) continue;
+                n.start += off;
+                if (n.start >= c.length - 1.0e-6) continue;
+                n.len = std::max (0.05, std::min (n.len, c.length - n.start));
+                n.pitch += shift;
+                src.push_back (n);
+            }
+        std::sort (src.begin(), src.end(), [] (const NoteEv& a, const NoteEv& b) { return a.start < b.start; });
+        auto& lane = c.p->lanes[(size_t) l];
+        if (copy) { lane = src; continue; }
+
+        // a new version: same rhythm, accents and shape, new notes that sit on the chords
+        Rng r (seedFor (seed, 313, (uint64_t) l));
+        const bool bass = l == BassLane;
+        const int lo = bass ? 24 : 55, hi = bass ? 64 : 91;
+        auto snapScale = [&] (int p) { for (int d = 0; d <= 2; ++d) { if (c.inScale (p + d)) return p + d; if (c.inScale (p - d)) return p - d; } return p; };
+        auto nearestChordTone = [&] (int target, int ci, bool rootOnly)
+        {
+            int best = target, bestD = 99;
+            for (int p = target - 7; p <= target + 7; ++p)
+            {
+                const bool ok = rootOnly ? wrap12 (p) == wrap12 (c.p->chords[(size_t) ci].bassNote()) : c.inChord (p, ci);
+                if (ok && std::abs (p - target) < bestD) { bestD = std::abs (p - target); best = p; }
+            }
+            return best;
+        };
+        std::vector<NoteEv> out;
+        int prevSrc = -1, prevNew = -1;
+        for (size_t i = 0; i < src.size(); ++i)
+        {
+            NoteEv n = src[i];
+            const int ci = c.chordIndexAt (n.start + 0.01);
+            const bool strong = std::abs (n.start - std::round (n.start)) < 0.03 || std::abs (n.start - c.p->chords[(size_t) ci].start) < 0.03;
+            if (! strong && r.chance (0.12)) continue;                       // a little air
+            int p;
+            if (prevNew < 0 || strong)
+            {
+                int target = n.pitch;
+                if (! bass && r.chance (0.55)) target += r.chance (0.5) ? 2 : -2;
+                p = bass ? (r.chance (0.2) ? nearestChordTone (target, ci, false) : nearestChordTone (target, ci, true))
+                         : nearestChordTone (target, ci, false);
+                if (bass && r.chance (0.12)) p += r.chance (0.5) ? 12 : -12;   // octave jump
+            }
+            else
+            {
+                int step = n.pitch - prevSrc;                                // keep the shape
+                if (r.chance (0.25)) step = -step;
+                if (r.chance (0.3)) step += r.chance (0.5) ? 1 : -1;
+                p = snapScale (prevNew + step);
+                if (r.chance (0.4)) p = nearestChordTone (p, ci, false);
+            }
+            while (p < lo) p += 12;
+            while (p > hi) p -= 12;
+            prevSrc = n.pitch;
+            prevNew = p;
+            n.pitch = p;
+            if (n.len >= 1.0 && r.chance (0.15))                             // split a long note
+            {
+                NoteEv a = n; a.len = n.len * 0.5;
+                NoteEv b = n; b.start += a.len; b.len = n.len - a.len; b.pitch = snapScale (p + (r.chance (0.5) ? 2 : -1));
+                out.push_back (a); out.push_back (b);
+                continue;
+            }
+            out.push_back (n);
+        }
+        lane = out;
+    }
+}
+
 // 808 STUTTER + GLIDE: trap-style rolls, and slides from one note into the next
 void bass808 (Ctx& c)
 {
@@ -2426,6 +2512,7 @@ Pattern composeSection (const Settings& in)
     buildDrums (c);
     buildBass (c);
     bassOctaveJumps (c);
+    applyExamples (c);
     varyTakes (c);
     bass808 (c);
     harmonizeMelody (c);

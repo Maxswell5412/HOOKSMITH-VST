@@ -127,6 +127,19 @@ std::string nameChord (const std::vector<int>& pitches, int* rootPc = nullptr);
 // Finds a key written in a file name, e.g. "Pad - 125bpm - Emin", "KIT1_C#m", "(093 B)". Returns false if none.
 bool keyFromName (const std::string& name, int& pc, bool& minor);
 
+// LOAD EXAMPLE: your own melody or bass line (from a MIDI file or an audio loop).
+// With the part's seed at copySeed it plays exactly (moved into the song's key);
+// any other seed (press the part's GENERATE) writes a new version on the same rhythm and feel.
+struct PartExample
+{
+    std::string name;
+    std::vector<NoteEv> notes;
+    double lengthBeats = 16;
+    int tonicPc = 0;
+    bool minor = false;
+    uint32_t copySeed = 1;
+};
+
 struct Settings
 {
     int genre = 0;
@@ -165,6 +178,7 @@ struct Settings
     int voicingStyle = 0;        // VOICING: 0 Auto, 1 Close, 2 Wide (melodic), 3 Low & Dark, 4 High & Bright
     int melodyFlavor = 0;        // melody FLAVOR: index into melodyFlavorNames() (0 = the genre's own)
     std::shared_ptr<const ImportedProgression> imported;   // set = use these chords instead of the PROGRESSOR
+    std::array<std::shared_ptr<const PartExample>, kNumLanes> examples {};   // LOAD EXAMPLE (melody, bass)
 };
 
 Pattern compose (const Settings&);

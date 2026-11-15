@@ -1,6 +1,8 @@
 // Drives HOOKSMITH like a DAW would and checks what comes out.
 #include "../Source/PluginProcessor.h"
 #include <cstdio>
+#include <algorithm>
+#include <cstring>
 #include <cmath>
 #include <cstdlib>
 #include <set>
@@ -131,6 +133,159 @@ int main()
         for (auto& e : evs) { if (e.on) { ++ons; pcs.insert (e.note % 12); } else ++offs; }
         CHECK (pcs == std::set<int> ({ 7, 11, 2 }), "G key plays a G major chord in C major (%d notes)", ons);
         CHECK (ons == offs && ons >= 3, "chord released (%d on %d off)", ons, offs);
+    }
+
+    // ------------------------------------------------------------ LOAD EXAMPLE (WAV + MIDI)
+    {
+        const double wsr = 44100.0, bpmW = 120.0, spbW = wsr * 60.0 / bpmW;
+        auto writeWav = [&] (const juce::File& f, const std::vector<float>& x)
+        {
+            f.deleteFile();
+            juce::WavAudioFormat wav;
+            std::unique_ptr<juce::OutputStream> os (f.createOutputStream().release());
+            std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (os.get(), wsr, 1, 24, {}, 0));
+            if (w == nullptr) return;
+            os.release();
+            juce::AudioBuffer<float> b (1, (int) x.size());
+            b.copyFrom (0, 0, x.data(), (int) x.size());
+            w->writeFromAudioSampleBuffer (b, 0, (int) x.size());
+        };
+        auto hz = [] (double m) { return 440.0 * std::pow (2.0, (m - 69.0) / 12.0); };
+        const auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("hs_examples");
+        dir.createDirectory();
+
+        // an 808 line at 120 bpm, 2 bars: C2 C2 G2 F2 | Eb2 . C2 .   (punchy pitch drop on every hit)
+        const int bassNotes[] = { 36, 36, 43, 41, 39, -1, 36, -1 };
+        std::vector<float> b808 ((size_t) (spbW * 8), 0.0f);
+        for (int k = 0; k < 8; ++k)
+        {
+            if (bassNotes[k] < 0) continue;
+            double ph = 0;
+            for (int i = 0; i < (int) (spbW * 0.95); ++i)
+            {
+                const double t = i / wsr;
+                const double f = hz (bassNotes[k]) * (1.0 + 0.6 * std::exp (-t * 60.0));
+                ph += 2.0 * 3.14159265 * f / wsr;
+                b808[(size_t) (k * spbW + i)] += (float) (0.6 * std::tanh (1.5 * std::sin (ph)) * std::exp (-t * 2.0) * std::min (1.0, t * 400.0));
+            }
+        }
+        const auto bassWav = dir.getChildFile ("Test 808 120bpm.wav");
+        writeWav (bassWav, b808);
+        const auto tracked = hs::pitchTrack (b808.data(), (int) b808.size(), wsr, 120.0, true);
+        std::string got; for (auto& n : tracked) got += std::to_string (n.pitch) + "@" + std::to_string (n.start).substr (0, 4) + " ";
+        std::printf ("  808 heard: %s\n", got.c_str());
+        int hits = 0;
+        for (int k = 0; k < 8; ++k)
+            if (bassNotes[k] >= 0)
+                for (auto& n : tracked) if (std::abs (n.start - k) < 0.13 && n.pitch == bassNotes[k]) { ++hits; break; }
+        CHECK (hits >= 5, "808 WAV: notes and timing heard (%d of 6)", hits);
+
+        // a melody: E5 G5 A5 G5 E5 D5 (half beats) on a soft saw
+        const int mel[] = { 76, 79, 81, 79, 76, 74, -1, -1 };
+        std::vector<float> mw ((size_t) (spbW * 4), 0.0f);
+        for (int k = 0; k < 8; ++k)
+        {
+            if (mel[k] < 0) continue;
+            double ph = 0;
+            for (int i = 0; i < (int) (spbW * 0.45); ++i)
+            {
+                ph += hz (mel[k]) / wsr; ph -= std::floor (ph);
+                const double env = std::min (1.0, i / 200.0) * std::min (1.0, (spbW * 0.45 - i) / 300.0);
+                mw[(size_t) (k * spbW * 0.5 + i)] += (float) (0.3 * (std::sin (2 * 3.14159265 * ph) + 0.3 * std::sin (4 * 3.14159265 * ph)) * env);
+            }
+        }
+        const auto mt = hs::pitchTrack (mw.data(), (int) mw.size(), wsr, 120.0, false);
+        int mh = 0;
+        for (int k = 0; k < 8; ++k) if (mel[k] >= 0) for (auto& n : mt) if (std::abs (n.start - k * 0.5) < 0.13 && n.pitch == mel[k]) { ++mh; break; }
+        CHECK (mh >= 5, "melody WAV: notes heard (%d of 6)", mh);
+
+        // a chord loop: Am | F | C | G, one bar each, piano-ish
+        const std::vector<std::vector<int>> chords = { { 57, 60, 64 }, { 53, 57, 60 }, { 48, 52, 55 }, { 55, 59, 62 } };
+        std::vector<float> cw ((size_t) (spbW * 16), 0.0f);
+        for (int c = 0; c < 4; ++c)
+            for (int note : chords[(size_t) c])
+                for (int rep = 0; rep < 2; ++rep)
+                    for (int i = 0; i < (int) (spbW * 1.9); ++i)
+                    {
+                        const double t = i / wsr, f = hz (note);
+                        const size_t at = (size_t) ((c * 4 + rep * 2) * spbW + i);
+                        double v = 0; for (int h = 1; h <= 4; ++h) v += std::sin (2 * 3.14159265 * f * h * t) / (h * h);
+                        cw[at] += (float) (0.12 * v * std::exp (-t * 1.2));
+                    }
+        const auto chordWav = dir.getChildFile ("Test Chords 120bpm Am.wav");
+        writeWav (chordWav, cw);
+
+        HooksmithProcessor p; p.setPlayConfigDetails (0, 2, sr, block); p.prepareToPlay (sr, block);
+        p.generateAll(); p.refreshNow();
+        // bass from WAV: the part copies it (moved into the song's key)
+        auto err = p.loadExample (hs::BassLane, bassWav); p.refreshNow();
+        CHECK (err.isEmpty(), "load 808 WAV (%s)", err.toRawUTF8());
+        {
+            auto lane = p.getPattern().lanes[hs::BassLane];
+            std::sort (lane.begin(), lane.end(), [] (const hs::NoteEv& a, const hs::NoteEv& b) { return a.start < b.start; });
+            std::vector<int> iv; for (size_t i = 1; i < lane.size() && i < 6; ++i) iv.push_back (lane[i].pitch - lane[0].pitch);
+            std::vector<int> want; { std::vector<int> src; for (int x : bassNotes) if (x >= 0) src.push_back (x); for (size_t i = 1; i < src.size() && i < 6; ++i) want.push_back (src[i] - src[0]); }
+            CHECK (iv == want, "the BASS copies the 808 line (same shape)");
+            CHECK (p.exampleName (hs::BassLane).contains ("copy"), "shows it's a copy");
+            const auto copyLane = lane;
+            p.rerollLane (hs::BassLane); p.refreshNow();
+            auto nv = p.getPattern().lanes[hs::BassLane];
+            std::set<double> s0, s1; for (auto& n : copyLane) s0.insert (std::round (n.start * 4)); for (auto& n : nv) s1.insert (std::round (n.start * 4));
+            int shared = 0; for (double t : s1) shared += s0.count (t) ? 1 : 0;
+            bool different = nv.size() != copyLane.size();
+            for (size_t i = 0; ! different && i < nv.size(); ++i) different = nv[i].pitch != copyLane[i].pitch;
+            CHECK (! nv.empty() && shared >= (int) s1.size() * 0.8 && different, "GENERATE on the bass: a new version on the same rhythm");
+            CHECK (p.exampleName (hs::BassLane).contains ("new version"), "shows it's a new version");
+        }
+        // melody from MIDI
+        {
+            juce::MidiMessageSequence seq;
+            const int line[] = { 72, 74, 76, 74, 72, 67, 69, 72 };
+            for (int k = 0; k < 8; ++k)
+            {
+                seq.addEvent (juce::MidiMessage::noteOn (1, line[k], (juce::uint8) 100), k * 480.0);
+                seq.addEvent (juce::MidiMessage::noteOff (1, line[k]), k * 480.0 + 400.0);
+            }
+            seq.updateMatchedPairs();
+            juce::MidiFile mf; mf.setTicksPerQuarterNote (480); mf.addTrack (seq);
+            const auto mfile = dir.getChildFile ("hook C.mid"); mfile.deleteFile();
+            { juce::FileOutputStream os (mfile); mf.writeTo (os); }
+            err = p.loadExample (hs::MelodyLane, mfile); p.refreshNow();
+            CHECK (err.isEmpty(), "load melody MIDI (%s)", err.toRawUTF8());
+            auto lane = p.getPattern().lanes[hs::MelodyLane];
+            std::sort (lane.begin(), lane.end(), [] (const hs::NoteEv& a, const hs::NoteEv& b) { return a.start < b.start || (a.start == b.start && a.pitch > b.pitch); });
+            std::vector<int> leads; double lastT = -1;
+            for (auto& n : lane) if (std::abs (n.start - lastT) > 0.01) { leads.push_back (n.pitch); lastT = n.start; }
+            bool shape = leads.size() >= 8;
+            for (int k = 1; shape && k < 8; ++k) shape = leads[(size_t) k] - leads[0] == line[k] - line[0];
+            CHECK (shape, "the MELODY copies the MIDI hook");
+        }
+        // chords from WAV become the progression
+        err = p.loadExample (hs::ChordsLane, chordWav); p.refreshNow();
+        CHECK (err.isEmpty(), "load chord WAV (%s)", err.toRawUTF8());
+        {
+            std::string names; for (auto& ch : p.getPattern().chords) names += ch.name + " ";
+            std::printf ("  chords heard: %s\n", names.c_str());
+            // Am F C G, moved into the song's key: minor, then major roots 8, 3 and 10 semitones up
+            const auto& chs = p.getPattern().chords;
+            bool shape = chs.size() >= 4;
+            const int want[] = { 0, 8, 3, 10 };
+            for (int k = 0; shape && k < 4; ++k)
+            {
+                shape = ((chs[(size_t) k].rootPc - chs[0].rootPc) % 12 + 12) % 12 == want[k];
+                const bool isMinor = chs[(size_t) k].name.find ('m') != std::string::npos && chs[(size_t) k].name.find ("maj") == std::string::npos;
+                shape = shape && (k == 0 ? isMinor : ! isMinor);
+            }
+            CHECK (shape && p.getActiveImport() >= 0, "chord WAV: Am F C G heard (in the song's key)");
+        }
+        // saved with the project
+        juce::MemoryBlock mb; p.getStateInformation (mb);
+        HooksmithProcessor q; q.setPlayConfigDetails (0, 2, sr, block); q.prepareToPlay (sr, block);
+        q.setStateInformation (mb.getData(), (int) mb.getSize()); q.refreshNow();
+        CHECK (q.exampleName (hs::BassLane).isNotEmpty() && q.exampleName (hs::MelodyLane).isNotEmpty(), "examples come back with the project");
+        p.clearExample (hs::BassLane); p.refreshNow();
+        CHECK (p.exampleName (hs::BassLane).isEmpty(), "clear the example");
+        std::printf ("load example ok\n");
     }
 
     // ------------------------------------------------------------ new chords are heard while playing

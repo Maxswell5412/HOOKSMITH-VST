@@ -151,6 +151,12 @@ private:
     // PART TONE (one per part, the panel shows the selected part) + MELODY harmony / flavor
     void selectPartLane (int lane);
     int partLane = 2;
+    // LOAD EXAMPLE (for the selected PART TONE tab)
+    ui::LedButton exampleButton { "Load Example", ui::Col::green, false };
+    ui::LedButton exampleClear { "X", ui::Col::red, false };
+    juce::Rectangle<int> exampleLcd;
+    std::unique_ptr<juce::FileChooser> exampleChooser;
+    void loadExampleInto (int lane, const juce::File& f);
     juce::OwnedArray<ui::LedButton> partTabs;
     ui::Knob pStrum, pHp, pLp, pRes, pGain;
     juce::ComboBox melHarm, melFlavor;
